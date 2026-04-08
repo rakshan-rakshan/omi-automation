@@ -23,20 +23,18 @@ interface TTSResponse {
 
 /**
  * Speech-to-Text: Convert Telugu audio to English text
- * Uses /speech-to-text endpoint with file upload
+ * Uses /speech-to-text endpoint
  */
 export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
   try {
-    // For Vercel, we need to fetch the audio file first, then upload
-    // Since we can't download YouTube directly on Vercel, we'll accept audio data
-    console.log('🎤 Calling Sarvam STT API...');
+    console.log('🎤 Calling Sarvam STT API with URL:', audioUrl);
     
+    // Sarvam accepts audioUrl parameter for remote files
     const response = await axios.post(
       `${SARVAM_BASE_URL}/speech-to-text`,
       {
-        audioUrl: audioUrl, // Try passing URL directly
+        audioUrl: audioUrl,
         language_code: 'te-IN',
-        model: 'saarika:v2.5', // Default model for transcription
       },
       {
         headers: {
@@ -46,13 +44,16 @@ export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
       }
     );
 
+    console.log('STT Response:', response.data);
+
     return {
-      transcript: response.data.transcript || response.data.text || '',
+      transcript: response.data.transcript || '',
       language: 'te',
       duration: response.data.duration || 0,
     };
   } catch (error: any) {
-    console.error('Sarvam STT Error:', error.response?.data || error.message);
+    console.error('Sarvam STT Error Details:', error.response?.data);
+    console.error('Sarvam STT Error Status:', error.response?.status);
     throw new Error(`STT failed: ${error.response?.data?.message || error.message}`);
   }
 }
