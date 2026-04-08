@@ -27,11 +27,10 @@ interface TTSResponse {
 export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
   try {
     const response = await axios.post(
-      `${SARVAM_BASE_URL}/speech-to-text`,
+      `${SARVAM_BASE_URL}/asr`,
       {
         audioUrl: audioUrl,
         language: 'te', // Telugu
-        modelId: 'sarvam-2-med-v1',
       },
       {
         headers: {
@@ -42,7 +41,7 @@ export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
     );
 
     return {
-      transcript: response.data.transcript || response.data.text,
+      transcript: response.data.transcript || response.data.text || '',
       language: 'te',
       duration: response.data.duration || 0,
     };
@@ -58,12 +57,11 @@ export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
 export async function sarvamNMT(text: string, sourceLang: string = 'te', targetLang: string = 'en'): Promise<NMTResponse> {
   try {
     const response = await axios.post(
-      `${SARVAM_BASE_URL}/neural-machine-translation`,
+      `${SARVAM_BASE_URL}/translate`,
       {
         input: text,
         source_language_code: sourceLang,
         target_language_code: targetLang,
-        model_id: 'sarvam-nmt-ind-v1',
       },
       {
         headers: {
@@ -74,7 +72,7 @@ export async function sarvamNMT(text: string, sourceLang: string = 'te', targetL
     );
 
     return {
-      translated_text: response.data.translated_text || response.data.output,
+      translated_text: response.data.translated_text || response.data.output || '',
       source_language: sourceLang,
       target_language: targetLang,
     };
@@ -90,11 +88,11 @@ export async function sarvamNMT(text: string, sourceLang: string = 'te', targetL
 export async function sarvamTTS(text: string, language: string = 'en'): Promise<TTSResponse> {
   try {
     const response = await axios.post(
-      `${SARVAM_BASE_URL}/text-to-speech`,
+      `${SARVAM_BASE_URL}/tts`,
       {
         inputs: [text],
         target_language_code: language,
-        speaker: 'meera', // Use Meera voice for English
+        speaker: 'meera',
         pitch: 1.0,
         pace: 1.0,
         loudness: 1.5,
@@ -104,17 +102,16 @@ export async function sarvamTTS(text: string, language: string = 'en'): Promise<
           'Authorization': `Bearer ${SARVAM_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        responseType: 'arraybuffer', // Get audio as buffer
+        responseType: 'arraybuffer',
       }
     );
 
-    // Convert buffer to base64
     const audioData = Buffer.from(response.data).toString('base64');
 
     return {
       audioUrl: `data:audio/wav;base64,${audioData}`,
       audioData: audioData,
-      duration: 0, // Duration will be calculated after generation
+      duration: 0,
     };
   } catch (error: any) {
     console.error('Sarvam TTS Error:', error.response?.data || error.message);
