@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const SARVAM_API_KEY = process.env.SARVAM_API_KEY;
-const SARVAM_BASE_URL = 'https://api.sarvam.ai/v1';
+const SARVAM_BASE_URL = 'https://api.sarvam.ai';
 
 interface STTResponse {
   transcript: string;
@@ -23,18 +23,24 @@ interface TTSResponse {
 
 /**
  * Speech-to-Text: Convert Telugu audio to English text
+ * Uses /speech-to-text endpoint with file upload
  */
 export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
   try {
+    // For Vercel, we need to fetch the audio file first, then upload
+    // Since we can't download YouTube directly on Vercel, we'll accept audio data
+    console.log('🎤 Calling Sarvam STT API...');
+    
     const response = await axios.post(
-      `${SARVAM_BASE_URL}/asr`,
+      `${SARVAM_BASE_URL}/speech-to-text`,
       {
-        audioUrl: audioUrl,
-        language: 'te', // Telugu
+        audioUrl: audioUrl, // Try passing URL directly
+        language_code: 'te-IN',
+        model: 'saarika:v2.5', // Default model for transcription
       },
       {
         headers: {
-          'Authorization': `Bearer ${SARVAM_API_KEY}`,
+          'api-subscription-key': SARVAM_API_KEY,
           'Content-Type': 'application/json',
         },
       }
@@ -54,25 +60,28 @@ export async function sarvamSTT(audioUrl: string): Promise<STTResponse> {
 /**
  * Neural Machine Translation: Translate text from Telugu to English
  */
-export async function sarvamNMT(text: string, sourceLang: string = 'te', targetLang: string = 'en'): Promise<NMTResponse> {
+export async function sarvamNMT(text: string, sourceLang: string = 'te-IN', targetLang: string = 'en-IN'): Promise<NMTResponse> {
   try {
+    console.log('🔤 Calling Sarvam Translate API...');
+    
     const response = await axios.post(
       `${SARVAM_BASE_URL}/translate`,
       {
         input: text,
         source_language_code: sourceLang,
         target_language_code: targetLang,
+        model: 'mayura:v1',
       },
       {
         headers: {
-          'Authorization': `Bearer ${SARVAM_API_KEY}`,
+          'api-subscription-key': SARVAM_API_KEY,
           'Content-Type': 'application/json',
         },
       }
     );
 
     return {
-      translated_text: response.data.translated_text || response.data.output || '',
+      translated_text: response.data.translated_text || '',
       source_language: sourceLang,
       target_language: targetLang,
     };
@@ -85,28 +94,29 @@ export async function sarvamNMT(text: string, sourceLang: string = 'te', targetL
 /**
  * Text-to-Speech: Generate English audio from text
  */
-export async function sarvamTTS(text: string, language: string = 'en'): Promise<TTSResponse> {
+export async function sarvamTTS(text: string, language: string = 'en-IN'): Promise<TTSResponse> {
   try {
+    console.log('🔊 Calling Sarvam TTS API...');
+    
     const response = await axios.post(
-      `${SARVAM_BASE_URL}/tts`,
+      `${SARVAM_BASE_URL}/text-to-speech`,
       {
-        inputs: [text],
+        text: text,
         target_language_code: language,
-        speaker: 'meera',
-        pitch: 1.0,
+        speaker: 'shubh',
+        model: 'bulbul:v3',
         pace: 1.0,
-        loudness: 1.5,
       },
       {
         headers: {
-          'Authorization': `Bearer ${SARVAM_API_KEY}`,
+          'api-subscription-key': SARVAM_API_KEY,
           'Content-Type': 'application/json',
         },
-        responseType: 'arraybuffer',
       }
     );
 
-    const audioData = Buffer.from(response.data).toString('base64');
+    // Response contains base64-encoded audio
+    const audioData = response.data.audios?.[0] || '';
 
     return {
       audioUrl: `data:audio/wav;base64,${audioData}`,
@@ -128,7 +138,7 @@ export async function sarvamSTTandTranslate(audioUrl: string): Promise<{ teluguT
     const sttResult = await sarvamSTT(audioUrl);
 
     // Step 2: Translate to English
-    const nmtResult = await sarvamNMT(sttResult.transcript, 'te', 'en');
+    const nmtResult = await sarvamNMT(sttResult.transcript, 'te-IN', 'en-IN');
 
     return {
       teluguText: sttResult.transcript,
@@ -152,14 +162,14 @@ export async function sarvamCompletePipeline(audioUrl: string): Promise<{
   try {
     // Step 1: Transcribe Telugu audio
     const sttResult = await sarvamSTT(audioUrl);
-    console.log('✅ STT Complete:', sttResult.transcript.substring(0, 100));
+    console.log('✅ STT Complete');
 
     // Step 2: Translate to English
-    const nmtResult = await sarvamNMT(sttResult.transcript, 'te', 'en');
-    console.log('✅ NMT Complete:', nmtResult.translated_text.substring(0, 100));
+    const nmtResult = await sarvamNMT(sttResult.transcript, 'te-IN', 'en-IN');
+    console.log('✅ NMT Complete');
 
     // Step 3: Generate English audio from translated text
-    const ttsResult = await sarvamTTS(nmtResult.translated_text, 'en');
+    const ttsResult = await sarvamTTS(nmtResult.translated_text, 'en-IN');
     console.log('✅ TTS Complete: Audio generated');
 
     return {
