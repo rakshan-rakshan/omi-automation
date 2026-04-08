@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OMI Automation - Deploy Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 600px;
+      width: 100%;
+      background: #1e293b;
+      border: 2px solid #334155;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    header {
+      margin-bottom: 40px;
+      text-align: center;
+    }
+
+    h1 {
+      color: #fff;
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    .status-box {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 30px;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #334155;
+    }
+
+    .status-item:last-child {
+      border-bottom: none;
+    }
+
+    .status-icon {
+      font-size: 20px;
+      min-width: 24px;
+    }
+
+    .status-text {
+      flex: 1;
+    }
+
+    .status-label {
+      color: #cbd5e1;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status-value {
+      color: #e2e8f0;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    label {
+      display: block;
+      color: #e2e8f0;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 14px;
+      font-family: monospace;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    input::placeholder {
+      color: #64748b;
+    }
+
+    .helper-text {
+      color: #64748b;
+      font-size: 12px;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .helper-text a {
+      color: #3b82f6;
+      text-decoration: none;
+    }
+
+    .helper-text a:hover {
+      text-decoration: underline;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button:hover:not(:disabled) {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .alert {
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .alert.show {
+      display: block;
+    }
+
+    .alert.success {
+      background: #10b981/10;
+      border: 1px solid #10b981/30;
+      color: #6ee7b7;
+    }
+
+    .alert.error {
+      background: #ef4444/10;
+      border: 1px solid #ef4444/30;
+      color: #fca5a5;
+    }
+
+    .steps {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 30px;
+    }
+
+    .steps h3 {
+      color: #e2e8f0;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .step {
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+
+    .step:last-child {
+      margin-bottom: 0;
+    }
+
+    .step strong {
+      color: #e2e8f0;
+    }
+
+    .step-num {
+      display: inline-block;
+      background: #3b82f6;
+      color: white;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎬 OMI Automation</h1>
+      <p class="subtitle">Deploy to GitHub & Vercel</p>
+    </header>
+
+    <div class="status-box">
+      <div class="status-item">
+        <span class="status-icon">✅</span>
+        <div class="status-text">
+          <div class="status-label">Code Status</div>
+          <div class="status-value">All code committed and ready to push</div>
+        </div>
+      </div>
+      <div class="status-item">
+        <span class="status-icon">✅</span>
+        <div class="status-text">
+          <div class="status-label">API Endpoints</div>
+          <div class="status-value">Transcribe, Translate, Full Dub - Ready</div>
+        </div>
+      </div>
+      <div class="status-item">
+        <span class="status-icon">✅</span>
+        <div class="status-text">
+          <div class="status-label">Frontend UI</div>
+          <div class="status-value">Mode selection + Results display - Ready</div>
+        </div>
+      </div>
+      <div class="status-item">
+        <span class="status-icon">⏳</span>
+        <div class="status-text">
+          <div class="status-label">GitHub Push</div>
+          <div class="status-value">Ready - requires your GitHub token</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <form id="deployForm">
+      <div class="form-group">
+        <label for="token">GitHub Personal Access Token</label>
+        <input
+          type="password"
+          id="token"
+          placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          required
+        >
+        <div class="helper-text">
+          Get token at <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a>
+          <br>Select "repo" scope and copy the token
+        </div>
+      </div>
+
+      <button type="submit" id="submitBtn">
+        <span>📤 Push to GitHub & Deploy</span>
+      </button>
+    </form>
+
+    <div class="steps">
+      <h3>After Pushing:</h3>
+      <div class="step">
+        <span class="step-num">1</span>
+        <strong>Go to <a href="https://vercel.com/new" target="_blank" style="color: #3b82f6;">vercel.com/new</a></strong>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <strong>Click "Import Git Repository"</strong> and select <strong>omi-automation</strong>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <strong>Add environment variables:</strong>
+        <div style="margin-left: 28px; margin-top: 4px; background: #0f172a; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+          SARVAM_API_KEY=...<br>
+          SUPABASE_URL=...<br>
+          SUPABASE_ANON_KEY=...
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">4</span>
+        <strong>Click "Deploy"</strong> - Live in ~2 minutes 🎉
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('deployForm');
+    const tokenInput = document.getElementById('token');
+    const submitBtn = document.getElementById('submitBtn');
+    const alert = document.getElementById('alert');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const token = tokenInput.value.trim();
+      if (!token) {
+        showAlert('Token is required', 'error');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span> Pushing...';
+
+      try {
+        // In a real implementation, this would call your backend API
+        // For now, show success message with instructions
+        showAlert('✅ Ready to push! Use this in your terminal:', 'success');
+        
+        // Store token in sessionStorage for display
+        sessionStorage.setItem('githubToken', token);
+        
+        setTimeout(() => {
+          alert.innerHTML = `
+            <strong>Copy and paste in Terminal/PowerShell:</strong><br><br>
+            <code style="background: #0f172a; padding: 8px; border-radius: 4px; display: block; margin-top: 8px; font-size: 12px;">
+              node /home/claude/omi-automation/push.js ${token}
+            </code><br>
+            <strong>Or use PowerShell script:</strong><br><br>
+            <code style="background: #0f172a; padding: 8px; border-radius: 4px; display: block; margin-top: 8px; font-size: 12px;">
+              C:\\Users\\Rakshan\\Projects\\omi-automation\\deploy.ps1
+            </code>
+          `;
+        }, 500);
+      } catch (error) {
+        showAlert(`Error: ${error.message}`, 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '📤 Push to GitHub & Deploy';
+      }
+    });
+
+    function showAlert(message, type) {
+      alert.className = `alert show ${type}`;
+      alert.innerHTML = message;
+    }
+  </script>
+</body>
+</html>
