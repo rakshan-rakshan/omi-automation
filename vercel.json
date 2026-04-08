@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "env": [
+    "SARVAM_API_KEY",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY"
+  ]
+}
