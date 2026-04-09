@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN!;
 // frederikhbb~youtube-downloader: yt-dlp based, stores audio in Apify KV store.
-// Input: { startUrls: [{ url }] }  Output dataset item: { url, videoUrl, title }
+// Input: { video_url: string }  Output dataset item: { url, videoUrl, title }
 // Override via APIFY_ACTOR_ID env var. '/' is normalized to '~'.
 const APIFY_ACTOR_ID = (process.env.APIFY_ACTOR_ID || 'frederikhbb~youtube-downloader').replace('/', '~');
 
@@ -19,7 +19,7 @@ export async function startApifyRun(youtubeUrl: string): Promise<string> {
   const res = await axios.post(
     `${BASE}/acts/${APIFY_ACTOR_ID}/runs?token=${APIFY_API_TOKEN}`,
     // Standard Apify RequestList input — works for most community download actors
-    { startUrls: [{ url: youtubeUrl }] },
+    { video_url: youtubeUrl },
     { headers: { 'Content-Type': 'application/json' } }
   );
   const runId: string = res.data.data.id;
