@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await streamAudioToAzure(inputStoragePath, audioUrl, AUDIO_FILENAME);
 
     // 3. Trigger Sarvam processing
-    await startBatchJob(jobId, 'te-IN');
+    await startBatchJob(jobId);
 
     return res.status(200).json({ sarvamJobId: jobId, outputStoragePath });
   } catch (e: any) {

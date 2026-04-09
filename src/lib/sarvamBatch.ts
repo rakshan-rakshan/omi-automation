@@ -1,15 +1,12 @@
 /**
  * Sarvam AI Speech-to-Text-Translate (STTT) Batch API
+ * Verified endpoints from: sarvamai/sarvam-ai-cookbook (stt-translate-batch-api notebook)
  *
- * Endpoints (from sarvamai/batch-api-typescript):
- *   POST /speech-to-text-translate/job/init  → { jobId, inputStoragePath, outputStoragePath }
- *   PUT  {inputStoragePath}/{filename}        → upload audio to Azure SAS URL
- *   POST /speech-to-text-translate/job        → start job { jobId, language_code }
- *   GET  /speech-to-text-translate/job/{id}/status → { status }
- *   GET  {outputStoragePath}/{filename}.json  → transcript JSON
- *
- * Using STTT (saaras:v3) instead of STT + separate NMT:
- * one API call gives us English transcript with timestamps directly from Telugu audio.
+ *   POST /speech-to-text-translate/job/init  → { job_id, input_storage_path, output_storage_path }
+ *   ADLS Gen2 create→append→flush            → upload audio file
+ *   POST /speech-to-text-translate/job        → start job { job_id, job_parameters }
+ *   GET  /speech-to-text-translate/job/{id}/status → { job_state, job_details[] }
+ *   GET  {outputStoragePath}/{file_id}.json   → transcript JSON
  */
 
 import axios from 'axios';
@@ -29,47 +26,34 @@ export interface BatchJobInit {
   outputStoragePath: string;
 }
 
-/** Initialise a new STTT batch job. Returns Azure SAS paths for audio upload. */
+export type BatchStatus = 'Pending' | 'Running' | 'Completed' | 'Failed';
+
+/** Initialise a new STTT batch job. Returns Azure ADLS paths for audio upload. */
 export async function initBatchJob(): Promise<BatchJobInit> {
   const res = await axios.post(
     `${BASE}/speech-to-text-translate/job/init`,
     {},
     { headers: { 'api-subscription-key': SARVAM_API_KEY } }
   );
-  const { jobId, inputStoragePath, outputStoragePath } = res.data;
-  console.log(`STTT batch job initialised: ${jobId}`);
-  return { jobId, inputStoragePath, outputStoragePath };
+  // API returns snake_case: job_id, input_storage_path, output_storage_path
+  const { job_id, input_storage_path, output_storage_path } = res.data;
+  console.log(`STTT batch job initialised: ${job_id}`);
+  return {
+    jobId: job_id,
+    inputStoragePath: input_storage_path,
+    outputStoragePath: output_storage_path,
+  };
 }
 
 /**
- * Upload audio bytes to the Azure SAS input path.
- * Constructs: {basePath}/{filename}?{sasToken}
+ * Download audio from Apify CDN and upload to Azure Data Lake Gen2.
+ * ADLS Gen2 requires: create file → append data → flush (not a simple blob PUT).
  */
-export async function uploadAudioToAzure(
-  inputStoragePath: string,
-  audioBuffer: Buffer,
-  filename: string,
-  contentType: string
-): Promise<void> {
-  const url = buildAzureBlobUrl(inputStoragePath, filename);
-  await axios.put(url, audioBuffer, {
-    headers: {
-      'Content-Type': contentType,
-      'x-ms-blob-type': 'BlockBlob',
-    },
-    maxBodyLength: Infinity,
-    maxContentLength: Infinity,
-  });
-  console.log(`Uploaded ${audioBuffer.length} bytes to Azure as ${filename}`);
-}
-
-/** Stream-upload audio from a remote URL to Azure SAS path (no full buffer needed). */
 export async function streamAudioToAzure(
   inputStoragePath: string,
   audioUrl: string,
   filename: string
-): Promise<{ contentType: string }> {
-  // Download from Apify CDN as a buffer (audio files are typically 5-30MB)
+): Promise<void> {
   const audioRes = await axios.get(audioUrl, {
     responseType: 'arraybuffer',
     maxContentLength: Infinity,
@@ -78,53 +62,62 @@ export async function streamAudioToAzure(
   const contentType: string =
     (audioRes.headers['content-type'] as string)?.split(';')[0] || 'audio/mpeg';
 
-  await uploadAudioToAzure(inputStoragePath, buffer, filename, contentType);
-  return { contentType };
+  await uploadToAdlsGen2(inputStoragePath, buffer, filename, contentType);
+  console.log(`Uploaded ${buffer.length} bytes to ADLS as ${filename}`);
 }
 
-/** Start the STTT batch job (triggers Sarvam processing). */
-export async function startBatchJob(
-  jobId: string,
-  languageCode: string = 'te-IN'
-): Promise<void> {
+/**
+ * Start the STTT batch job.
+ * Body must be { job_id, job_parameters } — no language_code (model auto-detects).
+ */
+export async function startBatchJob(jobId: string): Promise<void> {
   await axios.post(
     `${BASE}/speech-to-text-translate/job`,
-    { jobId, language_code: languageCode },
-    { headers: { 'api-subscription-key': SARVAM_API_KEY } }
+    { job_id: jobId, job_parameters: { with_diarization: false } },
+    {
+      headers: {
+        'api-subscription-key': SARVAM_API_KEY,
+        'Content-Type': 'application/json',
+      },
+    }
   );
   console.log(`STTT batch job started: ${jobId}`);
 }
 
-export type BatchStatus = 'Pending' | 'Running' | 'Completed' | 'Failed';
-
-/** Poll job status. */
+/** Poll job status — response field is job_state, not status. */
 export async function getBatchJobStatus(jobId: string): Promise<BatchStatus> {
   const res = await axios.get(
     `${BASE}/speech-to-text-translate/job/${jobId}/status`,
     { headers: { 'api-subscription-key': SARVAM_API_KEY } }
   );
-  return res.data.status as BatchStatus;
+  return res.data.job_state as BatchStatus;
 }
 
 /**
- * Download the transcript JSON from Azure output path.
- * The output blob is named after the input file (e.g. audio.mp3 → audio.json).
+ * Download transcript JSON from Azure ADLS output path.
+ * Output files are named {file_id}.json — get file_id from job status.
  */
 export async function getBatchJobResults(
-  outputStoragePath: string,
-  filename: string
+  jobId: string,
+  outputStoragePath: string
 ): Promise<TranscriptSegment[]> {
-  const jsonFilename = filename.replace(/\.[^.]+$/, '.json');
-  const url = buildAzureBlobUrl(outputStoragePath, jsonFilename);
-  const res = await axios.get(url);
+  // Fetch job details to resolve file_id → output filename
+  const statusRes = await axios.get(
+    `${BASE}/speech-to-text-translate/job/${jobId}/status`,
+    { headers: { 'api-subscription-key': SARVAM_API_KEY } }
+  );
+  const jobDetails: Array<{ file_id: string; file_name: string; state: string }> =
+    statusRes.data.job_details ?? [];
+  const fileId = jobDetails[0]?.file_id ?? '0';
+
+  const outputUrl = buildAdlsUrl(outputStoragePath, `${fileId}.json`);
+  console.log(`Fetching transcript from: ${outputUrl.split('?')[0]}`);
+  const res = await axios.get(outputUrl);
   const data = res.data;
 
-  // Normalise response shape — Sarvam returns chunks or timestamps array
-  const rawSegments: any[] =
-    data.chunks || data.timestamps || data.segments || [];
+  const rawSegments: any[] = data.chunks ?? data.timestamps ?? data.segments ?? [];
 
   if (!rawSegments.length && data.transcript) {
-    // Flat transcript with no timestamps: return as single segment
     return [{ start: 0, end: 0, text: data.transcript }];
   }
 
@@ -140,14 +133,57 @@ export async function getBatchJobResults(
 // ---------------------------------------------------------------------------
 
 /**
- * Build an Azure Blob URL by inserting a filename before the SAS query string.
- * e.g. https://acct.blob.core.windows.net/container/prefix?sas
- *   →  https://acct.blob.core.windows.net/container/prefix/filename?sas
+ * Upload buffer to Azure Data Lake Gen2 using the REST create→append→flush sequence.
+ * storagePath: "https://account.dfs.core.windows.net/fs/dir?sas_token"
  */
-function buildAzureBlobUrl(storagePath: string, filename: string): string {
+async function uploadToAdlsGen2(
+  storagePath: string,
+  buffer: Buffer,
+  filename: string,
+  contentType: string
+): Promise<void> {
+  const sepIdx = storagePath.indexOf('?');
+  const pathBase = sepIdx === -1 ? storagePath : storagePath.slice(0, sepIdx);
+  const sasParams = sepIdx === -1 ? '' : storagePath.slice(sepIdx + 1);
+  const fileBase = `${pathBase}/${filename}`;
+
+  // Merge SAS params with per-operation params
+  const mkUrl = (extra: Record<string, string>) => {
+    const p = new URLSearchParams(sasParams);
+    for (const [k, v] of Object.entries(extra)) p.set(k, v);
+    return `${fileBase}?${p.toString()}`;
+  };
+
+  // Step 1: Create the file resource
+  await axios.put(mkUrl({ resource: 'file' }), '', {
+    headers: { 'Content-Length': '0' },
+  });
+
+  // Step 2: Append all data at position 0
+  await axios.patch(mkUrl({ action: 'append', position: '0' }), buffer, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(buffer.length),
+    },
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+
+  // Step 3: Flush/commit the data
+  await axios.patch(mkUrl({ action: 'flush', position: String(buffer.length) }), '', {
+    headers: {
+      'x-ms-content-type': contentType,
+      'Content-Length': '0',
+    },
+  });
+}
+
+/**
+ * Insert filename before the SAS query string.
+ * "https://account.dfs.../dir?sas" + "file.json" → "https://.../dir/file.json?sas"
+ */
+function buildAdlsUrl(storagePath: string, filename: string): string {
   const qIdx = storagePath.indexOf('?');
   if (qIdx === -1) return `${storagePath}/${filename}`;
-  const base = storagePath.slice(0, qIdx);
-  const sas = storagePath.slice(qIdx);
-  return `${base}/${filename}${sas}`;
+  return `${storagePath.slice(0, qIdx)}/${filename}${storagePath.slice(qIdx)}`;
 }

@@ -3,8 +3,6 @@ import { getBatchJobResults } from '@/lib/sarvamBatch';
 import { sarvamTTS } from '@/lib/sarvam';
 import { buildSRT } from '@/lib/srt';
 
-const AUDIO_FILENAME = 'audio.mp3';
-
 // Sarvam TTS max ~2500 chars per call; chunk longer text
 function chunkText(text: string, maxLen = 2400): string[] {
   const chunks: string[] = [];
@@ -29,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // 1. Download STTT results (English transcript + timestamps) from Azure
-    const segments = await getBatchJobResults(outputStoragePath, AUDIO_FILENAME);
+    const segments = await getBatchJobResults(sarvamJobId, outputStoragePath);
     console.log(`Got ${segments.length} transcript segments`);
 
     // 2. Build English SRT from segments
