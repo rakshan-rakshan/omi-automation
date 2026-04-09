@@ -20,3 +20,4 @@ downloads/
 *.wav
 *.mp4
 *.mkv
+tsconfig.tsbuildinfo
