@@ -2,7 +2,9 @@ import axios from 'axios';
 
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN!;
 // Default actor: tazy~youtube-converter returns separate audioUrl + videoUrl
-const APIFY_ACTOR_ID = process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter';
+// Apify actor IDs use '~' separator (e.g. tazy~youtube-converter).
+// Normalize in case the env var was set with '/' (tazy/youtube-converter).
+const APIFY_ACTOR_ID = (process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter').replace('/', '~');
 
 const BASE = 'https://api.apify.com/v2';
 

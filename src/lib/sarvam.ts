@@ -67,7 +67,7 @@ export async function sarvamTTS(
 ): Promise<TTSResponse> {
   const res = await axios.post(
     `${SARVAM_BASE_URL}/text-to-speech`,
-    { text, target_language_code: language, speaker: 'shubh', model: 'bulbul:v3', pace: 1.0 },
+    { inputs: [text], target_language_code: language, speaker: 'shruti', model: 'bulbul:v1' },
     { headers: { 'api-subscription-key': SARVAM_API_KEY, 'Content-Type': 'application/json' } }
   );
   const audioData: string = res.data.audios?.[0] || '';
