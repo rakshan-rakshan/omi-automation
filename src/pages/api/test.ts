@@ -11,20 +11,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // --- Env vars ---
   results['APIFY_API_TOKEN'] = process.env.APIFY_API_TOKEN ? 'set' : 'MISSING';
-  results['APIFY_ACTOR_ID'] = process.env.APIFY_ACTOR_ID || 'streamers~youtube-video-downloader (default)';
   results['SARVAM_API_KEY'] = process.env.SARVAM_API_KEY ? 'set' : 'MISSING';
 
-  // --- Apify: check actor exists ---
+  const actorId = (process.env.APIFY_ACTOR_ID || 'frederikhbb~youtube-downloader').replace('/', '~');
+  results['APIFY_ACTOR_ID'] = actorId;
+
+  // --- Apify: check actor exists + fetch input schema ---
   try {
-    const actorId = (process.env.APIFY_ACTOR_ID || 'streamers~youtube-video-downloader').replace('/', '~');
     const token = process.env.APIFY_API_TOKEN;
     if (!token) {
       results['apify_actor'] = 'SKIP (no token)';
     } else {
-      const r = await axios.get(
-        `https://api.apify.com/v2/acts/${actorId}?token=${token}`
-      );
-      results['apify_actor'] = `OK — ${r.data.data?.name || actorId}`;
+      const r = await axios.get(`https://api.apify.com/v2/acts/${actorId}?token=${token}`);
+      const actor = r.data.data;
+      results['apify_actor'] = `OK — ${actor.name || actorId}`;
+
+      // Show the required input fields so we can confirm the schema
+      try {
+        const schema = actor.versions?.[0]?.inputSchema;
+        if (schema) {
+          const parsed = typeof schema === 'string' ? JSON.parse(schema) : schema;
+          const required: string[] = parsed.required ?? [];
+          const fields = Object.keys(parsed.properties ?? {});
+          results['apify_actor_schema'] = `required: [${required.join(', ')}] / all: [${fields.join(', ')}]`;
+        } else {
+          results['apify_actor_schema'] = 'not available in actor metadata';
+        }
+      } catch {
+        results['apify_actor_schema'] = 'could not parse schema';
+      }
     }
   } catch (e: any) {
     results['apify_actor'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
