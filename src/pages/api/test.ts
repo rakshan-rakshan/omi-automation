@@ -1,6 +1,6 @@
 /**
  * GET /api/test
- * Health-checks env vars and reachability of cobalt + Sarvam APIs.
+ * Health-checks Piped + Sarvam APIs.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
@@ -10,25 +10,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   results['SARVAM_API_KEY'] = process.env.SARVAM_API_KEY ? 'set' : 'MISSING';
 
-  // --- cobalt.tools: resolve a known short video ---
+  // --- Piped: resolve a known short video ---
   try {
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    };
-    if (process.env.COBALT_API_KEY) headers['Authorization'] = `Api-Key ${process.env.COBALT_API_KEY}`;
-
-    const r = await axios.post(
-      'https://api.cobalt.tools/',
-      { url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', downloadMode: 'audio', audioFormat: 'mp3' },
-      { headers }
+    const r = await axios.get(
+      'https://pipedapi.kavin.rocks/streams/jNQXAC9IVRw',
+      { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 }
     );
-    const { status, url } = r.data;
-    results['cobalt'] = status === 'error'
-      ? `ERROR: ${r.data.error?.code}`
-      : `OK — status: ${status}, url: ${url ? 'present' : 'MISSING'}`;
+    const streams: any[] = r.data.audioStreams ?? [];
+    results['piped'] = streams.length
+      ? `OK — ${streams.length} audio stream(s), title: "${r.data.title}"`
+      : 'ERROR: no audio streams returned';
   } catch (e: any) {
-    results['cobalt'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
+    results['piped'] = `ERROR ${e.response?.status ?? e.code}: ${JSON.stringify(e.response?.data || e.message)}`;
   }
 
   // --- Sarvam: ping STTT batch init ---
