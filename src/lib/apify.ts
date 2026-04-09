@@ -1,10 +1,9 @@
 import axios from 'axios';
 
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN!;
-// Default actor: tazy~youtube-converter returns separate audioUrl + videoUrl
-// Apify actor IDs use '~' separator (e.g. tazy~youtube-converter).
-// Normalize in case the env var was set with '/' (tazy/youtube-converter).
-const APIFY_ACTOR_ID = (process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter').replace('/', '~');
+// streamers~youtube-video-downloader: startUrls + format input, downloadUrl output, no cookies required.
+// Override via APIFY_ACTOR_ID env var. '/' is normalized to '~'.
+const APIFY_ACTOR_ID = (process.env.APIFY_ACTOR_ID || 'streamers~youtube-video-downloader').replace('/', '~');
 
 const BASE = 'https://api.apify.com/v2';
 
@@ -18,11 +17,12 @@ export interface ApifyResult {
 export async function startApifyRun(youtubeUrl: string): Promise<string> {
   const res = await axios.post(
     `${BASE}/acts/${APIFY_ACTOR_ID}/runs?token=${APIFY_API_TOKEN}`,
-    { videoUrl: youtubeUrl, format: 'mp3', cookiesText: process.env.YOUTUBE_COOKIES_TEXT || '' },
+    // streamers~youtube-video-downloader schema: startUrls array + format
+    { startUrls: [{ url: youtubeUrl }], format: 'm4a' },
     { headers: { 'Content-Type': 'application/json' } }
   );
   const runId: string = res.data.data.id;
-  console.log(`Apify run started: ${runId}`);
+  console.log(`Apify run started: ${runId} (actor: ${APIFY_ACTOR_ID})`);
   return runId;
 }
 
@@ -31,14 +31,11 @@ export async function getApifyRunStatus(runId: string): Promise<{
   status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'ABORTED' | 'TIMED-OUT';
   result?: ApifyResult;
 }> {
-  const runRes = await axios.get(
-    `${BASE}/actor-runs/${runId}?token=${APIFY_API_TOKEN}`
-  );
+  const runRes = await axios.get(`${BASE}/actor-runs/${runId}?token=${APIFY_API_TOKEN}`);
   const status = runRes.data.data.status;
 
   if (status !== 'SUCCEEDED') return { status };
 
-  // Fetch dataset items to get download URLs
   const dataRes = await axios.get(
     `${BASE}/actor-runs/${runId}/dataset/items?token=${APIFY_API_TOKEN}`
   );
@@ -46,12 +43,20 @@ export async function getApifyRunStatus(runId: string): Promise<{
   if (!items.length) throw new Error('Apify run succeeded but dataset is empty');
 
   const item = items[0];
+
+  // downloadUrl may be an Apify KV-store URL — append token so Sarvam upload can fetch it
+  const rawUrl: string = item.downloadUrl || item.audioUrl || item.url || '';
+  const audioUrl = addApifyToken(rawUrl);
+  const videoUrl = addApifyToken(item.videoUrl || rawUrl);
+
   return {
     status,
-    result: {
-      audioUrl: item.downloadUrl || item.audioUrl || item.url,
-      videoUrl: item.videoUrl || item.downloadUrl || item.url,
-      title: item.title || '',
-    },
+    result: { audioUrl, videoUrl, title: item.title || '' },
   };
+}
+
+/** Append Apify token to api.apify.com URLs; leave external CDN URLs unchanged. */
+function addApifyToken(url: string): string {
+  if (!url || !url.includes('api.apify.com')) return url;
+  return url.includes('?') ? `${url}&token=${APIFY_API_TOKEN}` : `${url}?token=${APIFY_API_TOKEN}`;
 }

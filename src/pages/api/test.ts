@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // --- Apify: check actor exists ---
   try {
-    const actorId = process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter';
+    const actorId = (process.env.APIFY_ACTOR_ID || 'streamers~youtube-video-downloader').replace('/', '~');
     const token = process.env.APIFY_API_TOKEN;
     if (!token) {
       results['apify_actor'] = 'SKIP (no token)';
