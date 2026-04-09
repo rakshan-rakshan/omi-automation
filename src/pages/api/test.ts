@@ -70,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else {
       const r = await axios.post(
         'https://api.sarvam.ai/text-to-speech',
-        { inputs: ['test'], target_language_code: 'en-IN', speaker: 'shruti', model: 'bulbul:v2' },
+        { inputs: ['test'], target_language_code: 'en-IN', speaker: 'anushka', model: 'bulbul:v2' },
         { headers: { 'api-subscription-key': key } }
       );
       results['sarvam_tts'] = `OK — ${r.data.audios?.length ?? 0} audio(s) returned`;
