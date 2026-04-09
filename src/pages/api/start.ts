@@ -10,7 +10,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const apifyRunId = await startApifyRun(youtubeUrl);
     return res.status(200).json({ apifyRunId });
   } catch (e: any) {
-    console.error('start error:', e.response?.data || e.message);
-    return res.status(500).json({ error: e.message });
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : '';
+    console.error('start error:', e.message, detail);
+    return res.status(500).json({ error: `[apify-start] ${e.message}${detail ? ' — ' + detail : ''}` });
   }
 }

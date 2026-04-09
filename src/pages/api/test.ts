@@ -1,0 +1,68 @@
+/**
+ * GET /api/test
+ * Health-checks env vars and reachability of Apify + Sarvam APIs.
+ * Use this to diagnose 404/401 errors before running the full pipeline.
+ */
+import type { NextApiRequest, NextApiResponse } from 'next';
+import axios from 'axios';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const results: Record<string, string> = {};
+
+  // --- Env vars ---
+  results['APIFY_API_TOKEN'] = process.env.APIFY_API_TOKEN ? 'set' : 'MISSING';
+  results['APIFY_ACTOR_ID'] = process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter (default)';
+  results['SARVAM_API_KEY'] = process.env.SARVAM_API_KEY ? 'set' : 'MISSING';
+
+  // --- Apify: check actor exists ---
+  try {
+    const actorId = process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter';
+    const token = process.env.APIFY_API_TOKEN;
+    if (!token) {
+      results['apify_actor'] = 'SKIP (no token)';
+    } else {
+      const r = await axios.get(
+        `https://api.apify.com/v2/acts/${actorId}?token=${token}`
+      );
+      results['apify_actor'] = `OK — ${r.data.data?.name || actorId}`;
+    }
+  } catch (e: any) {
+    results['apify_actor'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
+  }
+
+  // --- Sarvam: ping STTT batch init ---
+  try {
+    const key = process.env.SARVAM_API_KEY;
+    if (!key) {
+      results['sarvam_sttt_batch'] = 'SKIP (no key)';
+    } else {
+      const r = await axios.post(
+        'https://api.sarvam.ai/speech-to-text-translate/job/init',
+        {},
+        { headers: { 'api-subscription-key': key } }
+      );
+      results['sarvam_sttt_batch'] = `OK — job_id: ${r.data.job_id}`;
+    }
+  } catch (e: any) {
+    results['sarvam_sttt_batch'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
+  }
+
+  // --- Sarvam: ping TTS ---
+  try {
+    const key = process.env.SARVAM_API_KEY;
+    if (!key) {
+      results['sarvam_tts'] = 'SKIP (no key)';
+    } else {
+      const r = await axios.post(
+        'https://api.sarvam.ai/text-to-speech',
+        { inputs: ['test'], target_language_code: 'en-IN', speaker: 'meera', model: 'bulbul:v1' },
+        { headers: { 'api-subscription-key': key } }
+      );
+      results['sarvam_tts'] = `OK — ${r.data.audios?.length ?? 0} audio(s) returned`;
+    }
+  } catch (e: any) {
+    results['sarvam_tts'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
+  }
+
+  return res.status(200).json(results);
+}

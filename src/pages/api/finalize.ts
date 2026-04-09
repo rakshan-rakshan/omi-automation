@@ -53,7 +53,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       segmentCount: segments.length,
     });
   } catch (e: any) {
-    console.error('finalize error:', e.response?.data || e.message);
-    return res.status(500).json({ error: e.message });
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : '';
+    console.error('finalize error:', e.message, detail);
+    return res.status(500).json({ error: `[finalize] ${e.message}${detail ? ' — ' + detail : ''}` });
   }
 }

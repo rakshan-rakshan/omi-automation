@@ -20,7 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({ sarvamJobId: jobId, outputStoragePath });
   } catch (e: any) {
-    console.error('sarvam-start error:', e.response?.data || e.message);
-    return res.status(500).json({ error: e.message });
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : '';
+    console.error('sarvam-start error:', e.message, detail);
+    return res.status(500).json({ error: `[sarvam-start] ${e.message}${detail ? ' — ' + detail : ''}` });
   }
 }
