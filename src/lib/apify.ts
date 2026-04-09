@@ -18,7 +18,7 @@ export interface ApifyResult {
 export async function startApifyRun(youtubeUrl: string): Promise<string> {
   const res = await axios.post(
     `${BASE}/acts/${APIFY_ACTOR_ID}/runs?token=${APIFY_API_TOKEN}`,
-    { url: youtubeUrl, format: 'mp3' },
+    { url: youtubeUrl, format: 'mp3', cookiesText: process.env.YOUTUBE_COOKIES_TEXT || '' },
     { headers: { 'Content-Type': 'application/json' } }
   );
   const runId: string = res.data.data.id;
