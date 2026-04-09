@@ -1,7 +1,6 @@
 /**
  * GET /api/test
- * Health-checks env vars and reachability of Apify + Sarvam APIs.
- * Use this to diagnose 404/401 errors before running the full pipeline.
+ * Health-checks env vars and reachability of cobalt + Sarvam APIs.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
@@ -9,40 +8,27 @@ import axios from 'axios';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const results: Record<string, string> = {};
 
-  // --- Env vars ---
-  results['APIFY_API_TOKEN'] = process.env.APIFY_API_TOKEN ? 'set' : 'MISSING';
   results['SARVAM_API_KEY'] = process.env.SARVAM_API_KEY ? 'set' : 'MISSING';
 
-  const actorId = (process.env.APIFY_ACTOR_ID || 'frederikhbb~youtube-downloader').replace('/', '~');
-  results['APIFY_ACTOR_ID'] = actorId;
-
-  // --- Apify: check actor exists + fetch input schema ---
+  // --- cobalt.tools: resolve a known short video ---
   try {
-    const token = process.env.APIFY_API_TOKEN;
-    if (!token) {
-      results['apify_actor'] = 'SKIP (no token)';
-    } else {
-      const r = await axios.get(`https://api.apify.com/v2/acts/${actorId}?token=${token}`);
-      const actor = r.data.data;
-      results['apify_actor'] = `OK — ${actor.name || actorId}`;
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+    if (process.env.COBALT_API_KEY) headers['Authorization'] = `Api-Key ${process.env.COBALT_API_KEY}`;
 
-      // Show the required input fields so we can confirm the schema
-      try {
-        const schema = actor.versions?.[0]?.inputSchema;
-        if (schema) {
-          const parsed = typeof schema === 'string' ? JSON.parse(schema) : schema;
-          const required: string[] = parsed.required ?? [];
-          const fields = Object.keys(parsed.properties ?? {});
-          results['apify_actor_schema'] = `required: [${required.join(', ')}] / all: [${fields.join(', ')}]`;
-        } else {
-          results['apify_actor_schema'] = 'not available in actor metadata';
-        }
-      } catch {
-        results['apify_actor_schema'] = 'could not parse schema';
-      }
-    }
+    const r = await axios.post(
+      'https://api.cobalt.tools/',
+      { url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', downloadMode: 'audio', audioFormat: 'mp3' },
+      { headers }
+    );
+    const { status, url } = r.data;
+    results['cobalt'] = status === 'error'
+      ? `ERROR: ${r.data.error?.code}`
+      : `OK — status: ${status}, url: ${url ? 'present' : 'MISSING'}`;
   } catch (e: any) {
-    results['apify_actor'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
+    results['cobalt'] = `ERROR ${e.response?.status}: ${JSON.stringify(e.response?.data || e.message)}`;
   }
 
   // --- Sarvam: ping STTT batch init ---
