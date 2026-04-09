@@ -1,7 +1,6 @@
 /**
- * Piped — open-source YouTube frontend with a public streams API.
- * GET https://pipedapi.kavin.rocks/streams/{videoId}
- * Returns signed YouTube CDN stream URLs. No auth required.
+ * YouTube audio URL resolver — tries multiple public Piped/Invidious instances.
+ * No auth, no sign-up. Falls back through the list until one works.
  */
 import axios from 'axios';
 
@@ -25,24 +24,56 @@ export interface DownloadResult {
   title: string;
 }
 
+// Piped instances — returns { audioStreams: [{ url, bitrate }] }
+const PIPED = [
+  'https://pipedapi.moomoo.me',
+  'https://piped-api.garudalinux.org',
+  'https://api.piped.projectsegfau.lt',
+  'https://pipedapi.kavin.rocks',
+];
+
+// Invidious instances — returns { adaptiveFormats: [{ type, url, bitrate }] }
+const INVIDIOUS = [
+  'https://inv.riverside.rocks',
+  'https://invidious.snopyta.org',
+  'https://yt.artemislena.eu',
+  'https://invidious.io',
+];
+
+async function tryPiped(base: string, videoId: string): Promise<DownloadResult> {
+  const res = await axios.get(`${base}/streams/${videoId}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    timeout: 10000,
+  });
+  const streams: any[] = res.data.audioStreams ?? [];
+  if (!streams.length) throw new Error('no audio streams');
+  streams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+  return { audioUrl: streams[0].url, videoUrl: res.data.hls ?? streams[0].url, title: res.data.title ?? '' };
+}
+
+async function tryInvidious(base: string, videoId: string): Promise<DownloadResult> {
+  const res = await axios.get(`${base}/api/v1/videos/${videoId}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    timeout: 10000,
+  });
+  const formats: any[] = (res.data.adaptiveFormats ?? []).filter(
+    (f: any) => (f.type as string).startsWith('audio/')
+  );
+  if (!formats.length) throw new Error('no audio formats');
+  formats.sort((a, b) => parseInt(b.bitrate ?? '0') - parseInt(a.bitrate ?? '0'));
+  return { audioUrl: formats[0].url, videoUrl: formats[0].url, title: res.data.title ?? '' };
+}
+
 export async function getYoutubeDownloadUrl(youtubeUrl: string): Promise<DownloadResult> {
   const videoId = extractVideoId(youtubeUrl);
+  const errors: string[] = [];
 
-  const res = await axios.get(`https://pipedapi.kavin.rocks/streams/${videoId}`, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-    timeout: 15000,
-  });
+  for (const base of PIPED) {
+    try { return await tryPiped(base, videoId); } catch (e: any) { errors.push(`piped ${base}: ${e.message}`); }
+  }
+  for (const base of INVIDIOUS) {
+    try { return await tryInvidious(base, videoId); } catch (e: any) { errors.push(`invidious ${base}: ${e.message}`); }
+  }
 
-  const audioStreams: any[] = res.data.audioStreams ?? [];
-  if (!audioStreams.length) throw new Error('No audio streams found for this video');
-
-  // Pick highest-bitrate audio stream
-  audioStreams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
-  const best = audioStreams[0];
-
-  return {
-    audioUrl: best.url,
-    videoUrl: res.data.hls ?? best.url,
-    title: res.data.title ?? '',
-  };
+  throw new Error(`All instances failed:\n${errors.join('\n')}`);
 }
