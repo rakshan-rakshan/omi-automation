@@ -29,6 +29,29 @@ function buildAgent(): ytdl.Agent | undefined {
 }
 
 /**
+ * Pick the best available audio format with multiple fallbacks.
+ * ytdl.chooseFormat can throw "Failed to find any playable formats" when
+ * the requested quality tier doesn't exist — this avoids that.
+ */
+function pickAudioFormat(formats: ytdl.videoFormat[]): ytdl.videoFormat {
+  const withAudio = formats.filter((f) => f.hasAudio);
+
+  if (withAudio.length === 0) {
+    throw new Error('No audio formats available for this video');
+  }
+
+  // Prefer audio-only (smaller download), sorted by bitrate ascending
+  const audioOnly = withAudio
+    .filter((f) => !f.hasVideo)
+    .sort((a, b) => (a.audioBitrate ?? 999) - (b.audioBitrate ?? 999));
+
+  if (audioOnly.length > 0) return audioOnly[0];
+
+  // Fall back to muxed stream with lowest bitrate
+  return withAudio.sort((a, b) => (a.audioBitrate ?? 999) - (b.audioBitrate ?? 999))[0];
+}
+
+/**
  * Download audio from a YouTube URL into an in-memory Buffer.
  * Uses @distube/ytdl-core — pure JS, no system binaries required.
  */
@@ -38,14 +61,11 @@ export async function downloadYouTubeAudio(url: string): Promise<AudioDownloadRe
   const info = await ytdl.getInfo(url, agent ? { agent } : undefined);
   const videoId = info.videoDetails.videoId;
 
-  const format = ytdl.chooseFormat(info.formats, {
-    filter: 'audioonly',
-    quality: 'lowestaudio',
-  });
+  console.log(`Video: ${info.videoDetails.title} (${videoId})`);
+  console.log(`Available formats: ${info.formats.length}`);
 
-  if (!format) {
-    throw new Error(`No audio-only format found for video ${videoId}`);
-  }
+  const format = pickAudioFormat(info.formats);
+  console.log(`Selected format: ${format.mimeType} ${format.audioBitrate}kbps`);
 
   const stream = ytdl.downloadFromInfo(info, { format, agent: agent ?? undefined });
 
@@ -54,11 +74,10 @@ export async function downloadYouTubeAudio(url: string): Promise<AudioDownloadRe
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
 
+  const buffer = Buffer.concat(chunks);
+  console.log(`Downloaded ${buffer.length} bytes`);
+
   const contentType = format.mimeType?.split(';')[0] || 'audio/webm';
 
-  return {
-    buffer: Buffer.concat(chunks),
-    contentType,
-    videoId,
-  };
+  return { buffer, contentType, videoId };
 }
