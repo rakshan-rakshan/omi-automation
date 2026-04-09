@@ -17,8 +17,8 @@ export interface ApifyResult {
 export async function startApifyRun(youtubeUrl: string): Promise<string> {
   const res = await axios.post(
     `${BASE}/acts/${APIFY_ACTOR_ID}/runs?token=${APIFY_API_TOKEN}`,
-    // streamers~youtube-video-downloader schema: startUrls array + format
-    { videos: [{ url: youtubeUrl }], format: 'm4a' },
+    // streamers~youtube-video-downloader schema: videos is a plain string array
+    { videos: [youtubeUrl], format: 'm4a' },
     { headers: { 'Content-Type': 'application/json' } }
   );
   const runId: string = res.data.data.id;

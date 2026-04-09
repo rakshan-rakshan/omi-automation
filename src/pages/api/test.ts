@@ -11,7 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // --- Env vars ---
   results['APIFY_API_TOKEN'] = process.env.APIFY_API_TOKEN ? 'set' : 'MISSING';
-  results['APIFY_ACTOR_ID'] = process.env.APIFY_ACTOR_ID || 'tazy~youtube-converter (default)';
+  results['APIFY_ACTOR_ID'] = process.env.APIFY_ACTOR_ID || 'streamers~youtube-video-downloader (default)';
   results['SARVAM_API_KEY'] = process.env.SARVAM_API_KEY ? 'set' : 'MISSING';
 
   // --- Apify: check actor exists ---
