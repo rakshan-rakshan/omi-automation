@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { downloadYouTubeAudio } from '@/lib/youtube';
 import { sarvamCompletePipeline } from '@/lib/sarvam';
 
 type ResponseData = {
@@ -6,7 +7,7 @@ type ResponseData = {
   data?: {
     teluguTranscript: string;
     englishTranscript: string;
-    audioUrl: string;
+    audioUrl: string; // data:audio/wav;base64,... — downloadable English WAV
     duration: number;
   };
   error?: string;
@@ -20,35 +21,32 @@ export default async function handler(
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { youtubeUrl, audioUrl } = req.body;
+  const { youtubeUrl } = req.body;
 
-  if (!youtubeUrl && !audioUrl) {
-    return res.status(400).json({ success: false, error: 'YouTube URL or audio URL required' });
+  if (!youtubeUrl) {
+    return res.status(400).json({ success: false, error: 'youtubeUrl is required' });
   }
 
   try {
-    console.log('🎯 MODE 3: FULL DUB (COMPLETE PIPELINE)');
+    console.log('MODE 3: DUB —', youtubeUrl);
 
-    // Use provided audio URL or YouTube URL
-    const url = audioUrl || youtubeUrl;
+    const { buffer, contentType } = await downloadYouTubeAudio(youtubeUrl);
+    console.log(`Audio downloaded: ${buffer.length} bytes`);
 
-    // Complete Sarvam pipeline (STT + NMT + TTS)
-    console.log('🔄 Running complete pipeline (STT → NMT → TTS)...');
-    const pipelineResult = await sarvamCompletePipeline(url);
-    console.log('✅ Pipeline complete');
+    const result = await sarvamCompletePipeline(buffer, contentType);
+    console.log('Pipeline complete (STT → NMT → TTS)');
 
-    // Return complete results with audio data
     return res.status(200).json({
       success: true,
       data: {
-        teluguTranscript: pipelineResult.teluguText,
-        englishTranscript: pipelineResult.englishText,
-        audioUrl: pipelineResult.audioUrl,
+        teluguTranscript: result.teluguText,
+        englishTranscript: result.englishText,
+        audioUrl: result.audioUrl, // base64 WAV data URI
         duration: 0,
       },
     });
   } catch (error: any) {
-    console.error('Full dub error:', error.message);
+    console.error('Dub error:', error.response?.data || error.message);
     return res.status(500).json({
       success: false,
       error: error.message || 'Dubbing failed',

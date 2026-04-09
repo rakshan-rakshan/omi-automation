@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { downloadYouTubeAudio } from '@/lib/youtube';
 import { sarvamSTT } from '@/lib/sarvam';
 
 type ResponseData = {
@@ -18,22 +19,20 @@ export default async function handler(
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { youtubeUrl, audioUrl } = req.body;
+  const { youtubeUrl } = req.body;
 
-  if (!youtubeUrl && !audioUrl) {
-    return res.status(400).json({ success: false, error: 'YouTube URL or audio URL required' });
+  if (!youtubeUrl) {
+    return res.status(400).json({ success: false, error: 'youtubeUrl is required' });
   }
 
   try {
-    console.log('🎯 MODE 1: TRANSCRIBE');
+    console.log('MODE 1: TRANSCRIBE —', youtubeUrl);
 
-    // Use provided audio URL or YouTube URL
-    const url = audioUrl || youtubeUrl;
+    const { buffer, contentType } = await downloadYouTubeAudio(youtubeUrl);
+    console.log(`Audio downloaded: ${buffer.length} bytes`);
 
-    // Transcribe using Sarvam STT
-    console.log('🎤 Transcribing (STT)...');
-    const sttResult = await sarvamSTT(url);
-    console.log('✅ Transcription complete');
+    const sttResult = await sarvamSTT(buffer, contentType);
+    console.log('Transcription complete');
 
     return res.status(200).json({
       success: true,
@@ -43,7 +42,7 @@ export default async function handler(
       },
     });
   } catch (error: any) {
-    console.error('Transcribe error:', error.message);
+    console.error('Transcribe error:', error.response?.data || error.message);
     return res.status(500).json({
       success: false,
       error: error.message || 'Transcription failed',
