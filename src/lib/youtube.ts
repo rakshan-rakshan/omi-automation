@@ -1,4 +1,4 @@
-import ytdl from '@distube/ytdl-core';
+import play from 'play-dl';
 
 interface AudioDownloadResult {
   buffer: Buffer;
@@ -7,77 +7,55 @@ interface AudioDownloadResult {
 }
 
 /**
- * Build a ytdl agent from YOUTUBE_COOKIES env var (JSON array of cookie objects).
- * Without cookies, Vercel's datacenter IPs get blocked by YouTube's bot detection.
- *
- * To generate cookies:
- * 1. Install browser extension "Get cookies.txt LOCALLY" (Chrome/Firefox)
- * 2. Open youtube.com while logged in, click the extension → "Export as JSON"
- * 3. Paste the JSON array into Vercel → Settings → Environment Variables
- *    as YOUTUBE_COOKIES
+ * Initialise play-dl with YouTube cookies from YOUTUBE_COOKIES env var.
+ * Cookies should be a JSON array exported from the browser (e.g. via
+ * "Get cookies.txt LOCALLY" extension set to JSON export).
  */
-function buildAgent(): ytdl.Agent | undefined {
+async function initPlayDl(): Promise<void> {
   const raw = process.env.YOUTUBE_COOKIES;
-  if (!raw) return undefined;
+  if (!raw) return;
   try {
-    const cookies: ytdl.Cookie[] = JSON.parse(raw);
-    return ytdl.createAgent(cookies);
+    const cookies: Array<{ name: string; value: string }> = JSON.parse(raw);
+    const cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    await play.setToken({ youtube: { cookie: cookieStr } });
   } catch {
-    console.warn('YOUTUBE_COOKIES is set but could not be parsed as JSON — ignoring');
-    return undefined;
+    console.warn('YOUTUBE_COOKIES could not be parsed — proceeding without auth');
   }
 }
 
 /**
- * Pick the best available audio format with multiple fallbacks.
- * ytdl.chooseFormat can throw "Failed to find any playable formats" when
- * the requested quality tier doesn't exist — this avoids that.
- */
-function pickAudioFormat(formats: ytdl.videoFormat[]): ytdl.videoFormat {
-  const withAudio = formats.filter((f) => f.hasAudio);
-
-  if (withAudio.length === 0) {
-    throw new Error('No audio formats available for this video');
-  }
-
-  // Prefer audio-only (smaller download), sorted by bitrate ascending
-  const audioOnly = withAudio
-    .filter((f) => !f.hasVideo)
-    .sort((a, b) => (a.audioBitrate ?? 999) - (b.audioBitrate ?? 999));
-
-  if (audioOnly.length > 0) return audioOnly[0];
-
-  // Fall back to muxed stream with lowest bitrate
-  return withAudio.sort((a, b) => (a.audioBitrate ?? 999) - (b.audioBitrate ?? 999))[0];
-}
-
-/**
- * Download audio from a YouTube URL into an in-memory Buffer.
- * Uses @distube/ytdl-core — pure JS, no system binaries required.
+ * Download audio from a YouTube URL into an in-memory Buffer using play-dl.
  */
 export async function downloadYouTubeAudio(url: string): Promise<AudioDownloadResult> {
-  const agent = buildAgent();
+  await initPlayDl();
 
-  const info = await ytdl.getInfo(url, agent ? { agent } : undefined);
-  const videoId = info.videoDetails.videoId;
+  // Validate it's a YouTube URL and get the video ID
+  const validated = play.yt_validate(url);
+  if (validated !== 'video') {
+    throw new Error(`Not a valid YouTube video URL: ${url}`);
+  }
 
-  console.log(`Video: ${info.videoDetails.title} (${videoId})`);
-  console.log(`Available formats: ${info.formats.length}`);
+  const info = await play.video_info(url);
+  const videoId = info.video_details.id ?? 'unknown';
+  console.log(`Video: ${info.video_details.title} (${videoId})`);
 
-  const format = pickAudioFormat(info.formats);
-  console.log(`Selected format: ${format.mimeType} ${format.audioBitrate}kbps`);
+  // stream() returns the audio/video stream; quality 0 = highest, omit for default
+  const stream = await play.stream(url, {
+    quality: 1, // lowest available (smaller buffer)
+  });
 
-  const stream = ytdl.downloadFromInfo(info, { format, agent: agent ?? undefined });
+  console.log(`Streaming format: ${stream.type}`);
 
   const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
+  for await (const chunk of stream.stream) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
 
   const buffer = Buffer.concat(chunks);
   console.log(`Downloaded ${buffer.length} bytes`);
 
-  const contentType = format.mimeType?.split(';')[0] || 'audio/webm';
+  // play-dl streams are typically webm/opus or mp4/aac
+  const contentType = stream.type === 'opus' ? 'audio/webm' : 'audio/mp4';
 
   return { buffer, contentType, videoId };
 }
