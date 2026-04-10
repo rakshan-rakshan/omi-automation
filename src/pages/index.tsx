@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import Head from 'next/head';
 
-type Step = 'idle' | 'downloading' | 'transcribing' | 'generating' | 'done' | 'error';
+type Step = 'idle' | 'uploading' | 'transcribing' | 'generating' | 'done' | 'error';
+type Mode = 'youtube' | 'upload';
 
 const STEPS: { key: Step; label: string; detail: string }[] = [
-  { key: 'downloading', label: 'Downloading', detail: 'Fetching audio via cobalt.tools' },
+  { key: 'uploading', label: 'Uploading', detail: 'Sending audio to Sarvam batch job' },
   { key: 'transcribing', label: 'Transcribing', detail: 'Sarvam STTT: Telugu → English (batch)' },
   { key: 'generating', label: 'Generating', detail: 'Building captions + English audio' },
   { key: 'done', label: 'Done', detail: 'Ready to download' },
@@ -24,8 +25,15 @@ function downloadBase64Audio(b64: string, filename: string) {
   a.download = filename; a.click();
 }
 
+function fmtBytes(n: number) {
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function Home() {
+  const [mode, setMode] = useState<Mode>('youtube');
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [step, setStep] = useState<Step>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [results, setResults] = useState<{
@@ -35,20 +43,57 @@ export default function Home() {
     segmentCount: number;
   } | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const sarvamJobIdRef = useRef<string | null>(null);
   const outputStoragePathRef = useRef<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  async function handleProcess() {
-    if (!youtubeUrl.trim()) return;
+  function reset() {
     if (pollingRef.current) clearInterval(pollingRef.current);
-    setStep('downloading');
+    setStep('idle');
     setErrorMsg('');
     setResults(null);
+    sarvamJobIdRef.current = null;
+    outputStoragePathRef.current = null;
+    videoUrlRef.current = null;
+  }
 
+  async function pollAndFinalize(jobId: string, outputPath: string, videoUrl: string | null) {
+    sarvamJobIdRef.current = jobId;
+    outputStoragePathRef.current = outputPath;
+    videoUrlRef.current = videoUrl;
+
+    setStep('transcribing');
+    await new Promise<void>((resolve, reject) => {
+      pollingRef.current = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/sarvam-status?jobId=${jobId}`);
+          const d = await r.json();
+          if (!r.ok) { clearInterval(pollingRef.current!); reject(new Error(d.error)); return; }
+          if (d.status === 'Completed') { clearInterval(pollingRef.current!); resolve(); }
+          else if (d.status === 'Failed') { clearInterval(pollingRef.current!); reject(new Error('Sarvam transcription failed')); }
+        } catch (e: any) { clearInterval(pollingRef.current!); reject(e); }
+      }, 6000);
+    });
+
+    setStep('generating');
+    const finRes = await fetch('/api/finalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sarvamJobId: jobId, outputStoragePath: outputPath, videoUrl }),
+    });
+    const finData = await finRes.json();
+    if (!finRes.ok) throw new Error(finData.error || 'Finalize failed');
+    setResults(finData);
+    setStep('done');
+  }
+
+  async function handleYoutubeProcess() {
+    if (!youtubeUrl.trim()) return;
+    reset();
+    setStep('uploading');
     try {
-      // Step 1: Get audio download URL (synchronous via cobalt.tools, ~2-5s)
       const startRes = await fetch('/api/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,10 +102,6 @@ export default function Home() {
       const startData = await startRes.json();
       if (!startRes.ok) throw new Error(startData.error || 'Failed to get download URL');
 
-      videoUrlRef.current = startData.videoUrl || null;
-
-      // Step 2: Upload audio to Sarvam Batch STTT
-      setStep('transcribing');
       const sr = await fetch('/api/sarvam-start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,51 +109,38 @@ export default function Home() {
       });
       const sd = await sr.json();
       if (!sr.ok) throw new Error(sd.error || 'Failed to start transcription');
-      sarvamJobIdRef.current = sd.sarvamJobId;
-      outputStoragePathRef.current = sd.outputStoragePath;
 
-      // Step 3: Poll Sarvam until Completed
-      await new Promise<void>((resolve, reject) => {
-        pollingRef.current = setInterval(async () => {
-          try {
-            const r = await fetch(`/api/sarvam-status?jobId=${sarvamJobIdRef.current}`);
-            const d = await r.json();
-            if (!r.ok) { clearInterval(pollingRef.current!); reject(new Error(d.error)); return; }
-            if (d.status === 'Completed') {
-              clearInterval(pollingRef.current!);
-              resolve();
-            } else if (d.status === 'Failed') {
-              clearInterval(pollingRef.current!);
-              reject(new Error('Sarvam transcription failed'));
-            }
-          } catch (e: any) { clearInterval(pollingRef.current!); reject(e); }
-        }, 6000);
-      });
-
-      // Step 4: Finalize — build SRT + TTS
-      setStep('generating');
-      const finRes = await fetch('/api/finalize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sarvamJobId: sarvamJobIdRef.current,
-          outputStoragePath: outputStoragePathRef.current,
-          videoUrl: videoUrlRef.current,
-        }),
-      });
-      const finData = await finRes.json();
-      if (!finRes.ok) throw new Error(finData.error || 'Finalize failed');
-
-      setResults(finData);
-      setStep('done');
+      await pollAndFinalize(sd.sarvamJobId, sd.outputStoragePath, startData.videoUrl || null);
     } catch (e: any) {
       setErrorMsg(e.message || 'An error occurred');
       setStep('error');
     }
   }
 
-  const isRunning = ['downloading', 'transcribing', 'generating'].includes(step);
+  async function handleFileProcess() {
+    if (!selectedFile) return;
+    reset();
+    setStep('uploading');
+    try {
+      const buffer = await selectedFile.arrayBuffer();
+      const sr = await fetch('/api/upload-start', {
+        method: 'POST',
+        headers: { 'Content-Type': selectedFile.type || 'audio/mpeg' },
+        body: buffer,
+      });
+      const sd = await sr.json();
+      if (!sr.ok) throw new Error(sd.error || 'Failed to upload file');
+
+      await pollAndFinalize(sd.sarvamJobId, sd.outputStoragePath, null);
+    } catch (e: any) {
+      setErrorMsg(e.message || 'An error occurred');
+      setStep('error');
+    }
+  }
+
+  const isRunning = ['uploading', 'transcribing', 'generating'].includes(step);
   const activeIdx = STEPS.findIndex((s) => s.key === step);
+  const canSubmit = mode === 'youtube' ? !!youtubeUrl.trim() : !!selectedFile;
 
   return (
     <>
@@ -125,28 +153,88 @@ export default function Home() {
 
         <div>
           <h1 className="text-3xl font-bold">OMI Automation</h1>
-          <p className="text-slate-400 mt-1">Telugu YouTube → English captions + dubbed audio</p>
+          <p className="text-slate-400 mt-1">Telugu audio → English captions + dubbed audio</p>
         </div>
 
-        <div className="bg-slate-800 rounded-lg p-5 space-y-3">
-          <label className="block text-sm font-semibold text-slate-300">YouTube URL</label>
-          <div className="flex gap-2">
-            <input
-              type="url"
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              disabled={isRunning}
-              placeholder="https://www.youtube.com/watch?v=..."
-              className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-            />
+        <div className="bg-slate-800 rounded-lg p-5 space-y-4">
+          {/* Mode tabs */}
+          <div className="flex gap-1 bg-slate-700 rounded-lg p-1">
             <button
-              onClick={handleProcess}
-              disabled={isRunning || !youtubeUrl.trim()}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 rounded-lg font-semibold transition"
+              onClick={() => { setMode('youtube'); reset(); }}
+              disabled={isRunning}
+              className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${mode === 'youtube' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
             >
-              {isRunning ? 'Processing…' : 'Process'}
+              YouTube URL
+            </button>
+            <button
+              onClick={() => { setMode('upload'); reset(); }}
+              disabled={isRunning}
+              className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${mode === 'upload' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+            >
+              Upload File
             </button>
           </div>
+
+          {mode === 'youtube' ? (
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-300">YouTube URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  disabled={isRunning}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                />
+                <button
+                  onClick={handleYoutubeProcess}
+                  disabled={isRunning || !youtubeUrl.trim()}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 rounded-lg font-semibold transition"
+                >
+                  {isRunning ? 'Processing…' : 'Process'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <label className="block text-sm font-semibold text-slate-300">Audio or Video File</label>
+              <div
+                onClick={() => !isRunning && fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition
+                  ${isRunning ? 'opacity-50 cursor-not-allowed border-slate-600' : 'border-slate-600 hover:border-blue-500 hover:bg-slate-700/30'}`}
+              >
+                {selectedFile ? (
+                  <div>
+                    <p className="font-semibold text-white">{selectedFile.name}</p>
+                    <p className="text-sm text-slate-400 mt-1">{fmtBytes(selectedFile.size)} · {selectedFile.type || 'unknown type'}</p>
+                    {selectedFile.size > 4 * 1024 * 1024 && (
+                      <p className="text-xs text-yellow-400 mt-2">File is over 4 MB — may hit Vercel size limit. Use a shorter clip if it fails.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-slate-400">Click to select audio or video</p>
+                    <p className="text-xs text-slate-500 mt-1">MP3, MP4, WAV, OGG, WebM · max ~4 MB on Vercel Hobby</p>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*,video/*"
+                  className="hidden"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                />
+              </div>
+              <button
+                onClick={handleFileProcess}
+                disabled={isRunning || !selectedFile}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 rounded-lg font-semibold transition"
+              >
+                {isRunning ? 'Processing…' : 'Process File'}
+              </button>
+            </div>
+          )}
         </div>
 
         {step !== 'idle' && step !== 'error' && (
@@ -216,17 +304,17 @@ export default function Home() {
               )}
             </div>
             <button
-              onClick={() => { setStep('idle'); setResults(null); setYoutubeUrl(''); }}
+              onClick={() => { reset(); setYoutubeUrl(''); setSelectedFile(null); }}
               className="text-sm text-slate-400 hover:text-white"
             >
-              Process another video
+              Process another
             </button>
           </div>
         )}
 
         <div className="text-xs text-slate-600 space-y-1">
-          <p>Pipeline: cobalt.tools (YouTube download) → Sarvam STTT batch (Telugu → English) → Sarvam TTS</p>
-          <p>Requires SARVAM_API_KEY in Vercel environment variables.</p>
+          <p>Pipeline: audio source → Sarvam STTT batch (Telugu → English) → Sarvam TTS</p>
+          <p>Requires SARVAM_API_KEY in environment variables.</p>
         </div>
       </div>
     </>

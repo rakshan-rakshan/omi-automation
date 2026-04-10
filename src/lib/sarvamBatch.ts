@@ -132,6 +132,17 @@ export async function getBatchJobResults(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Upload a pre-buffered audio file to Azure and log the size. */
+export async function uploadAudioBuffer(
+  inputStoragePath: string,
+  buffer: Buffer,
+  filename: string,
+  contentType: string
+): Promise<void> {
+  await uploadToAdlsGen2(inputStoragePath, buffer, filename, contentType);
+  console.log(`Uploaded ${buffer.length} bytes to ADLS as ${filename}`);
+}
+
 /**
  * Upload buffer to Azure Data Lake Gen2 using the REST create→append→flush sequence.
  * storagePath: "https://account.dfs.core.windows.net/fs/dir?sas_token"
