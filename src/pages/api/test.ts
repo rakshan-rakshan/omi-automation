@@ -4,24 +4,19 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
+import { getYoutubeDownloadUrl } from '@/lib/cobalt';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const results: Record<string, string> = {};
 
   results['SARVAM_API_KEY'] = process.env.SARVAM_API_KEY ? 'set' : 'MISSING';
 
-  // --- Piped: resolve a known short video ---
+  // --- YouTube download: resolve a known short video via full fallback chain ---
   try {
-    const r = await axios.get(
-      'https://pipedapi.kavin.rocks/streams/jNQXAC9IVRw',
-      { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 }
-    );
-    const streams: any[] = r.data.audioStreams ?? [];
-    results['piped'] = streams.length
-      ? `OK — ${streams.length} audio stream(s), title: "${r.data.title}"`
-      : 'ERROR: no audio streams returned';
+    const dl = await getYoutubeDownloadUrl('https://www.youtube.com/watch?v=jNQXAC9IVRw');
+    results['youtube_download'] = `OK — title: "${dl.title}", audioUrl starts with: ${dl.audioUrl.slice(0, 60)}...`;
   } catch (e: any) {
-    results['piped'] = `ERROR ${e.response?.status ?? e.code}: ${JSON.stringify(e.response?.data || e.message)}`;
+    results['youtube_download'] = `ERROR: ${e.message}`;
   }
 
   // --- Sarvam: ping STTT batch init ---

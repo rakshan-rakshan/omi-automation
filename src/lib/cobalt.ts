@@ -1,6 +1,9 @@
 /**
  * YouTube audio URL resolver — tries multiple public Piped/Invidious instances.
- * No auth, no sign-up. Falls back through the list until one works.
+ * Strategy:
+ *   1. Race all hardcoded Piped instances in parallel (first success wins)
+ *   2. Race all hardcoded Invidious instances in parallel
+ *   3. Fetch live instance lists and race up to 8 of them
  */
 import axios from 'axios';
 
@@ -26,18 +29,20 @@ export interface DownloadResult {
 
 // Piped instances — returns { audioStreams: [{ url, bitrate }] }
 const PIPED = [
-  'https://pipedapi.moomoo.me',
-  'https://piped-api.garudalinux.org',
-  'https://api.piped.projectsegfau.lt',
-  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://pipedapi.ducks.party',
+  'https://api.piped.yt',
+  'https://piped.smnz.de',
+  'https://pipedapi.reallyaweso.me',
 ];
 
 // Invidious instances — returns { adaptiveFormats: [{ type, url, bitrate }] }
 const INVIDIOUS = [
-  'https://inv.riverside.rocks',
-  'https://invidious.snopyta.org',
-  'https://yt.artemislena.eu',
-  'https://invidious.io',
+  'https://yewtu.be',
+  'https://invidious.privacydev.net',
+  'https://iv.datura.network',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.fdn.fr',
 ];
 
 async function tryPiped(base: string, videoId: string): Promise<DownloadResult> {
@@ -64,16 +69,54 @@ async function tryInvidious(base: string, videoId: string): Promise<DownloadResu
   return { audioUrl: formats[0].url, videoUrl: formats[0].url, title: res.data.title ?? '' };
 }
 
+/** Fetch the live list of Piped API instances from the project registry. */
+async function fetchLivePipedInstances(): Promise<string[]> {
+  const res = await axios.get('https://instances.piped.video/', { timeout: 6000 });
+  return (res.data as any[]).map((i: any) => i.api_url).filter(Boolean);
+}
+
+/** Fetch the live list of Invidious instances from the project registry. */
+async function fetchLiveInvidiousInstances(): Promise<string[]> {
+  const res = await axios.get('https://api.invidious.io/instances.json', { timeout: 6000 });
+  return (res.data as any[])
+    .filter((i: any) => i[1]?.api !== false && i[1]?.type === 'https')
+    .map((i: any) => `https://${i[0]}`);
+}
+
 export async function getYoutubeDownloadUrl(youtubeUrl: string): Promise<DownloadResult> {
   const videoId = extractVideoId(youtubeUrl);
-  const errors: string[] = [];
 
-  for (const base of PIPED) {
-    try { return await tryPiped(base, videoId); } catch (e: any) { errors.push(`piped ${base}: ${e.message}`); }
-  }
-  for (const base of INVIDIOUS) {
-    try { return await tryInvidious(base, videoId); } catch (e: any) { errors.push(`invidious ${base}: ${e.message}`); }
+  // Round 1: race all hardcoded Piped instances (parallel)
+  try {
+    return await Promise.any(PIPED.map((base) => tryPiped(base, videoId)));
+  } catch {}
+
+  // Round 2: race all hardcoded Invidious instances (parallel)
+  try {
+    return await Promise.any(INVIDIOUS.map((base) => tryInvidious(base, videoId)));
+  } catch {}
+
+  // Round 3: fetch live instance lists, race up to 8 of each
+  const [livePipedResult, liveInvidiousResult] = await Promise.allSettled([
+    fetchLivePipedInstances(),
+    fetchLiveInvidiousInstances(),
+  ]);
+  const livePiped = livePipedResult.status === 'fulfilled'
+    ? livePipedResult.value.filter((u) => !PIPED.includes(u)).slice(0, 8)
+    : [];
+  const liveInvidious = liveInvidiousResult.status === 'fulfilled'
+    ? liveInvidiousResult.value.filter((u) => !INVIDIOUS.includes(u)).slice(0, 8)
+    : [];
+
+  const liveAttempts = [
+    ...livePiped.map((base) => tryPiped(base, videoId)),
+    ...liveInvidious.map((base) => tryInvidious(base, videoId)),
+  ];
+  if (liveAttempts.length > 0) {
+    try {
+      return await Promise.any(liveAttempts);
+    } catch {}
   }
 
-  throw new Error(`All instances failed:\n${errors.join('\n')}`);
+  throw new Error('[download] All YouTube instances failed — try again in a moment.');
 }
