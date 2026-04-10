@@ -144,8 +144,9 @@ export async function uploadAudioBuffer(
 }
 
 /**
- * Upload buffer to Azure Data Lake Gen2 using the REST create→append→flush sequence.
- * storagePath: "https://account.dfs.core.windows.net/fs/dir?sas_token"
+ * Upload buffer to Azure storage. Detects the storage type from the URL:
+ *   - blob.core.windows.net → Blob Storage: single PUT with x-ms-blob-type
+ *   - dfs.core.windows.net  → ADLS Gen2: create → append → flush sequence
  */
 async function uploadToAdlsGen2(
   storagePath: string,
@@ -158,19 +159,31 @@ async function uploadToAdlsGen2(
   const sasParams = sepIdx === -1 ? '' : storagePath.slice(sepIdx + 1);
   const fileBase = `${pathBase}/${filename}`;
 
-  // Merge SAS params with per-operation params
+  if (storagePath.includes('.blob.core.windows.net')) {
+    // Azure Blob Storage — simple single PUT
+    await axios.put(`${fileBase}?${sasParams}`, buffer, {
+      headers: {
+        'x-ms-blob-type': 'BlockBlob',
+        'Content-Type': contentType,
+        'Content-Length': String(buffer.length),
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    return;
+  }
+
+  // ADLS Gen2 — create → append → flush
   const mkUrl = (extra: Record<string, string>) => {
     const p = new URLSearchParams(sasParams);
     for (const [k, v] of Object.entries(extra)) p.set(k, v);
     return `${fileBase}?${p.toString()}`;
   };
 
-  // Step 1: Create the file resource
   await axios.put(mkUrl({ resource: 'file' }), '', {
     headers: { 'Content-Length': '0' },
   });
 
-  // Step 2: Append all data at position 0
   await axios.patch(mkUrl({ action: 'append', position: '0' }), buffer, {
     headers: {
       'Content-Type': 'application/octet-stream',
@@ -180,7 +193,6 @@ async function uploadToAdlsGen2(
     maxContentLength: Infinity,
   });
 
-  // Step 3: Flush/commit the data
   await axios.patch(mkUrl({ action: 'flush', position: String(buffer.length) }), '', {
     headers: {
       'x-ms-content-type': contentType,
