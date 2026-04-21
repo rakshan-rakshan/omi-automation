@@ -44,8 +44,8 @@ function concatenateWavBuffers(wavBuffers: Buffer[]): Buffer {
   return Buffer.concat([header, ...pcmChunks]);
 }
 
-// Sarvam TTS max ~2500 chars per call; chunk longer text
-function chunkText(text: string, maxLen = 2400): string[] {
+// Sarvam TTS API limit is 500 chars per call; use 490 to stay safely under
+function chunkText(text: string, maxLen = 490): string[] {
   const chunks: string[] = [];
   let remaining = text;
   while (remaining.length > maxLen) {
