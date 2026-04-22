@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -18,6 +18,17 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://omited:omited@localhost:5432/omited",
         alias="DATABASE_URL",
     )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def fix_db_url(cls, v: object) -> object:
+        """Railway / Heroku use postgres:// or postgresql:// — asyncpg needs postgresql+asyncpg://"""
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                return "postgresql+asyncpg://" + v[len("postgres://"):]
+            if v.startswith("postgresql://"):
+                return "postgresql+asyncpg://" + v[len("postgresql://"):]
+        return v
 
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")

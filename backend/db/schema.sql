@@ -1,21 +1,20 @@
 -- OMI-TED: Telugu→English Translation Engine & Dubbing Platform
--- PostgreSQL schema
--- Run with: psql -d omited -f schema.sql
+-- PostgreSQL schema — idempotent, safe to re-run
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "vector";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 CREATE EXTENSION IF NOT EXISTS "unaccent";
 
-CREATE TYPE transcript_source_enum  AS ENUM ('auto', 'manual');
-CREATE TYPE fetch_status_enum        AS ENUM ('pending', 'fetching', 'complete', 'failed');
-CREATE TYPE translation_version_enum AS ENUM ('google', 'refined', 'best_model', 'good_model', 'cheap_model');
-CREATE TYPE review_status_enum       AS ENUM ('pending', 'approved', 'flagged', 'skipped');
-CREATE TYPE job_status_enum          AS ENUM ('queued', 'running', 'complete', 'failed', 'partial');
-CREATE TYPE model_tier_enum          AS ENUM ('best', 'good', 'cheap');
-CREATE TYPE model_type_enum          AS ENUM ('translation', 'asr', 'tts', 'voice_clone');
-CREATE TYPE export_format_enum       AS ENUM ('jsonl', 'csv', 'tmx', 'srt_aligned');
-CREATE TYPE cultural_context_enum    AS ENUM ('telangana', 'andhra_pradesh', 'general');
+-- Enum types (wrapped in DO blocks so re-runs are safe)
+DO $$ BEGIN CREATE TYPE transcript_source_enum  AS ENUM ('auto', 'manual');               EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE fetch_status_enum        AS ENUM ('pending', 'fetching', 'complete', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE translation_version_enum AS ENUM ('google', 'refined', 'best_model', 'good_model', 'cheap_model'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE review_status_enum       AS ENUM ('pending', 'approved', 'flagged', 'skipped'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE job_status_enum          AS ENUM ('queued', 'running', 'complete', 'failed', 'partial'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE model_tier_enum          AS ENUM ('best', 'good', 'cheap');        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE model_type_enum          AS ENUM ('translation', 'asr', 'tts', 'voice_clone'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE export_format_enum       AS ENUM ('jsonl', 'csv', 'tmx', 'srt_aligned'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE cultural_context_enum    AS ENUM ('telangana', 'andhra_pradesh', 'general'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -25,7 +24,8 @@ BEGIN
 END;
 $$;
 
-CREATE TABLE users (
+-- users
+CREATE TABLE IF NOT EXISTS users (
   user_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email        TEXT UNIQUE NOT NULL,
   display_name TEXT,
@@ -34,10 +34,11 @@ CREATE TABLE users (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
+DROP TRIGGER IF EXISTS users_updated_at ON users;
 CREATE TRIGGER users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TABLE videos (
+-- videos
+CREATE TABLE IF NOT EXISTS videos (
   video_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   youtube_url            TEXT UNIQUE NOT NULL,
   youtube_video_id       TEXT UNIQUE NOT NULL,
@@ -58,12 +59,38 @@ CREATE TABLE videos (
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_videos_fetch_status     ON videos(fetch_status);
-CREATE INDEX idx_videos_youtube_video_id ON videos(youtube_video_id);
+CREATE INDEX IF NOT EXISTS idx_videos_fetch_status     ON videos(fetch_status);
+CREATE INDEX IF NOT EXISTS idx_videos_youtube_video_id ON videos(youtube_video_id);
+DROP TRIGGER IF EXISTS videos_updated_at ON videos;
 CREATE TRIGGER videos_updated_at BEFORE UPDATE ON videos FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TABLE segments (
+-- model_registry
+CREATE TABLE IF NOT EXISTS model_registry (
+  model_id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_name                  TEXT NOT NULL,
+  display_name                TEXT,
+  provider                    TEXT NOT NULL,
+  model_type                  model_type_enum NOT NULL,
+  tier                        model_tier_enum,
+  is_active                   BOOLEAN NOT NULL DEFAULT TRUE,
+  endpoint_url                TEXT,
+  api_key_env_var             TEXT NOT NULL DEFAULT 'OPENROUTER_API_KEY',
+  cost_per_1k_input_tokens    DECIMAL(10,6),
+  cost_per_1k_output_tokens   DECIMAL(10,6),
+  max_tokens                  INTEGER,
+  context_window              INTEGER,
+  supports_telugu             BOOLEAN NOT NULL DEFAULT FALSE,
+  extra_params                JSONB NOT NULL DEFAULT '{}',
+  notes                       TEXT,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (model_name, provider)
+);
+DROP TRIGGER IF EXISTS model_registry_updated_at ON model_registry;
+CREATE TRIGGER model_registry_updated_at BEFORE UPDATE ON model_registry FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- segments
+CREATE TABLE IF NOT EXISTS segments (
   segment_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   video_id                   UUID NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
   sequence_index             INTEGER NOT NULL,
@@ -83,44 +110,21 @@ CREATE TABLE segments (
   review_status              review_status_enum NOT NULL DEFAULT 'pending',
   reviewer_id                UUID REFERENCES users(user_id) ON DELETE SET NULL,
   reviewed_at                TIMESTAMPTZ,
-  embedding                  vector(1536),
   created_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (video_id, sequence_index)
 );
-
-CREATE INDEX idx_segments_video_id      ON segments(video_id);
-CREATE INDEX idx_segments_review_status ON segments(review_status);
-CREATE INDEX idx_segments_is_song       ON segments(is_song);
+CREATE INDEX IF NOT EXISTS idx_segments_video_id      ON segments(video_id);
+CREATE INDEX IF NOT EXISTS idx_segments_review_status ON segments(review_status);
+CREATE INDEX IF NOT EXISTS idx_segments_is_song       ON segments(is_song);
+DROP TRIGGER IF EXISTS segments_updated_at ON segments;
 CREATE TRIGGER segments_updated_at BEFORE UPDATE ON segments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TABLE model_registry (
-  model_id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  model_name                  TEXT NOT NULL,
-  display_name                TEXT,
-  provider                    TEXT NOT NULL CHECK (provider IN ('openai','anthropic','google','openrouter','sarvam','local')),
-  model_type                  model_type_enum NOT NULL,
-  tier                        model_tier_enum,
-  is_active                   BOOLEAN NOT NULL DEFAULT TRUE,
-  endpoint_url                TEXT,
-  api_key_env_var             TEXT NOT NULL,
-  cost_per_1k_input_tokens    DECIMAL(10,6),
-  cost_per_1k_output_tokens   DECIMAL(10,6),
-  max_tokens                  INTEGER,
-  context_window              INTEGER,
-  supports_telugu             BOOLEAN NOT NULL DEFAULT FALSE,
-  extra_params                JSONB NOT NULL DEFAULT '{}',
-  created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (model_name, provider)
-);
-
-CREATE TRIGGER model_registry_updated_at BEFORE UPDATE ON model_registry FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TABLE translations (
+-- translations (model_id nullable — not every translation maps to a registry entry)
+CREATE TABLE IF NOT EXISTS translations (
   translation_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   segment_id      UUID NOT NULL REFERENCES segments(segment_id) ON DELETE CASCADE,
-  model_id        UUID NOT NULL,
+  model_id        UUID REFERENCES model_registry(model_id) ON DELETE SET NULL,
   tier            model_tier_enum,
   translated_text TEXT NOT NULL,
   source_lang     TEXT NOT NULL DEFAULT 'te',
@@ -133,14 +137,10 @@ CREATE TABLE translations (
   is_active       BOOLEAN NOT NULL DEFAULT FALSE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_translations_segment_id ON translations(segment_id);
 
-CREATE INDEX idx_translations_segment_id ON translations(segment_id);
-
-ALTER TABLE translations
-  ADD CONSTRAINT fk_translations_model
-  FOREIGN KEY (model_id) REFERENCES model_registry(model_id) ON DELETE RESTRICT;
-
-CREATE TABLE reviews (
+-- reviews
+CREATE TABLE IF NOT EXISTS reviews (
   review_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   segment_id    UUID NOT NULL REFERENCES segments(segment_id) ON DELETE CASCADE,
   reviewer_id   UUID REFERENCES users(user_id) ON DELETE SET NULL,
@@ -151,7 +151,8 @@ CREATE TABLE reviews (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE glossary_terms (
+-- glossary_terms
+CREATE TABLE IF NOT EXISTS glossary_terms (
   term_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   telugu_term       TEXT NOT NULL,
   english_standard  TEXT NOT NULL,
@@ -163,7 +164,8 @@ CREATE TABLE glossary_terms (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE idioms (
+-- idioms
+CREATE TABLE IF NOT EXISTS idioms (
   idiom_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   telugu_phrase      TEXT NOT NULL UNIQUE,
   english_literal    TEXT,
@@ -174,7 +176,8 @@ CREATE TABLE idioms (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE batch_jobs (
+-- batch_jobs
+CREATE TABLE IF NOT EXISTS batch_jobs (
   job_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   job_type        TEXT NOT NULL CHECK (job_type IN ('ingest', 'translate', 'export', 'benchmark')),
   status          job_status_enum NOT NULL DEFAULT 'queued',
@@ -186,5 +189,5 @@ CREATE TABLE batch_jobs (
   completed_at    TIMESTAMPTZ,
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
+DROP TRIGGER IF EXISTS batch_jobs_updated_at ON batch_jobs;
 CREATE TRIGGER batch_jobs_updated_at BEFORE UPDATE ON batch_jobs FOR EACH ROW EXECUTE FUNCTION set_updated_at();
