@@ -16,7 +16,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google',
-  meta-llama: 'Meta',
+  'meta-llama': 'Meta',
   mistralai: 'Mistral',
   cohere: 'Cohere',
   deepseek: 'DeepSeek',
@@ -63,7 +63,6 @@ export default function ModelSelector({ value, onChange, onClear, placeholder = 
       )
     : models;
 
-  // Group by provider
   const grouped = filtered.reduce<Record<string, OpenRouterModel[]>>((acc, m) => {
     (acc[m.provider] = acc[m.provider] || []).push(m);
     return acc;
@@ -132,9 +131,6 @@ export default function ModelSelector({ value, onChange, onClear, placeholder = 
                       <div className="text-xs font-medium text-gray-800 truncate">{m.name}</div>
                       <div className="text-xs text-gray-400 font-mono mt-0.5 flex items-center gap-3">
                         <span>{m.id}</span>
-                        {(m.cost_input_per_1k > 0 || m.cost_output_per_1k > 0) && (
-                          <span className="text-gray-300">·</span>
-                        )}
                         {m.cost_input_per_1k > 0 && (
                           <span>${m.cost_input_per_1k.toFixed(4)}/1k in</span>
                         )}
