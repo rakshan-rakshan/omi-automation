@@ -10,7 +10,6 @@ DELETE /ingest/video/{id}         Delete video + segments
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import List, Optional
 
@@ -170,7 +169,7 @@ async def ingest_video(
     )
     row = existing.mappings().first()
     if row:
-        return {"video_id": row[0], "status": "already_exists"}
+        return {"video_id": row["video_id"], "status": "already_exists"}
 
     result = await db.execute(
         text(
@@ -190,7 +189,11 @@ async def ingest_video(
 
 
 @router.get("/videos")
-async def list_videos(db: DB, limit: int = Query(50, le=200), offset: int = Query(0, ge=0)):
+async def list_videos(
+    db: DB,
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+):
     """List all videos."""
     result = await db.execute(
         text(
@@ -211,12 +214,20 @@ async def list_videos(db: DB, limit: int = Query(50, le=200), offset: int = Quer
 async def get_video(video_id: str, db: DB):
     """Get video detail."""
     result = await db.execute(
-        text("SELECT * FROM videos WHERE video_id = :vid::uuid"),
+        text(
+            """
+            SELECT
+                video_id::text, youtube_url, youtube_video_id, title, channel,
+                duration_ms, fetch_status, segment_count, transcript_source,
+                thumbnail_url, tags, metadata, created_at::text, updated_at::text
+            FROM videos WHERE video_id = :vid::uuid
+        """
+        ),
         {"vid": video_id},
     )
     row = result.mappings().first()
     if not row:
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
     return dict(row)
 
 
@@ -234,28 +245,33 @@ async def get_segments(
         {"vid": video_id},
     )
     if not check.first():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
 
-    where = "WHERE video_id = :vid::uuid"
-    params = {"vid": video_id, "limit": limit, "offset": offset}
+    filters = "WHERE video_id = :vid::uuid"
+    params: dict = {"vid": video_id, "limit": limit, "offset": offset}
     if is_song is not None:
-        where += " AND is_song = :is_song"
+        filters += " AND is_song = :is_song"
         params["is_song"] = is_song
 
     result = await db.execute(
         text(
-            f"""
+            """
             SELECT segment_id::text, sequence_index, start_ms, end_ms,
-                   telugu_raw, english_good_model, is_song, song_confidence,
+                   telugu_raw, english_refined, english_best_model,
+                   english_good_model, english_cheap_model,
+                   active_translation_version, is_song, song_confidence,
                    review_status
-            FROM segments {where}
+            FROM segments
+            """
+            + filters
+            + """
             ORDER BY sequence_index
             LIMIT :limit OFFSET :offset
         """
         ),
         params,
     )
-    return {"segments": [dict(r) for r in result.mappings()]}
+    return {"video_id": video_id, "segments": [dict(r) for r in result.mappings()]}
 
 
 @router.patch("/segment/{segment_id}/song")
@@ -266,7 +282,7 @@ async def toggle_song(segment_id: str, body: SongToggleRequest, db: DB):
         {"sid": segment_id},
     )
     if not check.first():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail=f"Segment {segment_id} not found")
 
     await db.execute(
         text(
@@ -290,7 +306,7 @@ async def delete_video(video_id: str, db: DB):
         {"vid": video_id},
     )
     if not check.first():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
     await db.execute(
         text("DELETE FROM videos WHERE video_id = :vid::uuid"),
         {"vid": video_id},
