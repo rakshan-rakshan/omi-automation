@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
+
+log = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -43,6 +48,20 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, alias="PORT")
     debug: bool = Field(default=False, alias="DEBUG")
     cors_origins: list[str] = Field(default=["*"], alias="CORS_ORIGINS")
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: object) -> list[str]:
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                log.warning("Failed to parse CORS_ORIGINS as JSON, using default ['*']")
+        return ["*"]
 
     youtube_rate_limit: int = Field(default=10, alias="YOUTUBE_RATE_LIMIT")
     ingest_concurrency: int = Field(default=5, alias="INGEST_CONCURRENCY")
