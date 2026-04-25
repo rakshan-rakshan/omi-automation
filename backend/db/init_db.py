@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -34,7 +35,6 @@ async def init_db() -> None:
             retry_count += 1
             if retry_count < max_retries:
                 log.warning(f"DB connection attempt {retry_count}/{max_retries} failed, retrying: {exc}")
-                import asyncio
                 await asyncio.sleep(2 ** retry_count)  # exponential backoff
             else:
                 log.warning("Database initialization failed after retries (may be starting up): %s", exc)

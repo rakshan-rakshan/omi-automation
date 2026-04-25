@@ -22,7 +22,11 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from backend.db.init_db import init_db
-    await init_db()
+    try:
+        await init_db()
+        log.info("Database initialization completed")
+    except Exception as exc:
+        log.error("Database initialization failed: %s", exc)
     yield
 
 
