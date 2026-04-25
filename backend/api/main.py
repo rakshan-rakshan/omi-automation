@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -22,19 +23,36 @@ log.info(f"Debug mode: {settings.debug}")
 log.info(f"CORS origins: {settings.cors_origins}")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    log.info("App startup: beginning lifespan...")
+_db_init_task = None
+
+
+async def _background_init_db():
+    """Initialize database in background without blocking app startup."""
     from backend.db.init_db import init_db
     try:
-        log.info("App startup: initializing database...")
+        log.info("Background: starting database initialization...")
         await init_db()
-        log.info("App startup: database initialization completed")
+        log.info("Background: database initialization completed")
     except Exception as exc:
-        log.error("App startup: database initialization failed: %s", exc)
-    log.info("App startup: app is now ready to serve requests")
-    yield
-    log.info("App shutdown: cleaning up...")
+        log.error("Background: database initialization failed: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _db_init_task
+    log.info("App startup: app is now ready to serve requests (DB init in background)")
+    # Create a background task but don't await it - let it run in parallel
+    _db_init_task = asyncio.create_task(_background_init_db())
+    try:
+        yield
+    finally:
+        log.info("App shutdown: cleaning up...")
+        if _db_init_task and not _db_init_task.done():
+            _db_init_task.cancel()
+            try:
+                await _db_init_task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(
