@@ -58,19 +58,27 @@ class OpenRouterClient:
     def __init__(self, api_key: Optional[str] = None, timeout: float = 60.0):
         self._api_key = api_key or settings.openrouter_api_key
         self._timeout = timeout
-        self._client = httpx.AsyncClient(
-            base_url=_OPENROUTER_BASE,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "HTTP-Referer": "https://omited.ophir.org",
-                "X-Title": "OMI-TED Translation Engine",
-                "Content-Type": "application/json",
-            },
-            timeout=httpx.Timeout(timeout),
-        )
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Lazily initialize the AsyncClient on first use."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                base_url=_OPENROUTER_BASE,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "HTTP-Referer": "https://omited.ophir.org",
+                    "X-Title": "OMI-TED Translation Engine",
+                    "Content-Type": "application/json",
+                },
+                timeout=httpx.Timeout(self._timeout),
+            )
+        return self._client
 
     async def close(self) -> None:
-        await self._client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     @retry(
         retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
@@ -107,7 +115,8 @@ class OpenRouterClient:
 
         extra_headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
 
-        resp = await self._client.post("/chat/completions", json=payload, headers=extra_headers)
+        client = self._get_client()
+        resp = await client.post("/chat/completions", json=payload, headers=extra_headers)
 
         if resp.status_code != 200:
             logger.error(
