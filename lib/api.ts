@@ -5,9 +5,7 @@
 
 import axios from 'axios';
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-
-const client = axios.create({ baseURL: BASE ? `${BASE}/api/v1` : '/api/v1' });
+const client = axios.create({ baseURL: '/api/v1' });
 
 export interface Video {
   video_id: string;
