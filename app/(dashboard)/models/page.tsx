@@ -21,7 +21,7 @@ export default function ModelsPage() {
   const [migrating, setMigrating] = useState<string|null>(null);
   const load = async () => {
     setLoading(true);
-    try { const { data } = await axios.get(`${BASE}/api/v1/models`); setModels(data); }
+    try { const { data } = await axios.get(`${BASE}/api/v1/models/available`); setModels(data); }
     catch { setModels(SEED_MODELS); }
     finally { setLoading(false); }
   };
