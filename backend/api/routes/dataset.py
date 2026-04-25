@@ -8,7 +8,6 @@ from __future__ import annotations
 import io
 import json
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
@@ -59,7 +58,7 @@ async def export_dataset(
                     {
                         "messages": [
                             {"role": "system", "content": _SYSTEM_MSG},
-                            {"role": "user", "content": f"Translate: {r['telugu_raw']}"},
+                            {"role": "user", "content": "Translate: " + r["telugu_raw"]},
                             {"role": "assistant", "content": r["english_text"]},
                         ]
                     },
@@ -77,9 +76,10 @@ async def export_dataset(
         for r in rows:
             if not r["english_text"]:
                 continue
-            lines.append(
-                f'{r["segment_id"]},"{r["telugu_raw"].replace('"', '""')}","{r["english_text"].replace('"', '""')}"'
-            )
+            seg_id = r["segment_id"]
+            telugu = r["telugu_raw"].replace('"', '""')
+            english = r["english_text"].replace('"', '""')
+            lines.append(f'{seg_id},"{telugu}","{english}"')
         content = "\n".join(lines)
         return StreamingResponse(
             io.BytesIO(content.encode("utf-8")),
