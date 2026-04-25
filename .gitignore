@@ -21,3 +21,8 @@ downloads/
 *.mp4
 *.mkv
 tsconfig.tsbuildinfo
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
