@@ -66,5 +66,18 @@ class Settings(BaseSettings):
     youtube_rate_limit: int = Field(default=10, alias="YOUTUBE_RATE_LIMIT")
     ingest_concurrency: int = Field(default=5, alias="INGEST_CONCURRENCY")
 
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, v: str) -> str:
+        """Warn if using localhost (likely not set in production)."""
+        if "localhost" in v or "127.0.0.1" in v:
+            log.warning(
+                "Using localhost database URL - DATABASE_URL env var may not be set! "
+                "URL: %s",
+                v.split("@")[-1] if "@" in v else "***"
+            )
+        return v
+
 
 settings = Settings()
+log.info(f"Settings loaded - Database: {settings.database_url.split('@')[-1] if '@' in settings.database_url else '***'}")
