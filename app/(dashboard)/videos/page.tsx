@@ -14,7 +14,7 @@ import {
   Hash,
 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { ingestVideo, ingestBatch, getVideo, type Video } from '@/lib/api';
+import { ingestVideo, ingestBatch, getVideo, listVideos, type Video } from '@/lib/api';
 
 function StatusBadge({ status }: { status: Video['fetch_status'] }) {
   const cfg = {
@@ -147,12 +147,8 @@ export default function VideosPage() {
     setLoading(true);
     setError('');
     try {
-      const stored = JSON.parse(localStorage.getItem('omited_video_ids') || '[]') as string[];
-      const results = await Promise.allSettled(stored.map((id) => getVideo(id)));
-      const loaded: Video[] = results
-        .filter((r): r is PromiseFulfilledResult<Video> => r.status === 'fulfilled')
-        .map((r) => r.value);
-      setVideos(loaded);
+      const vids = await listVideos();
+      setVideos(vids);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load videos');
     } finally {

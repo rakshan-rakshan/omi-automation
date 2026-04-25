@@ -74,6 +74,16 @@ export interface TranslationResponse {
   is_active: boolean;
 }
 
+export async function listVideos(
+  opts: { offset?: number; limit?: number } = {},
+): Promise<Video[]> {
+  const { data } = await client.get('/ingest/videos', { params: opts });
+  // Backend may return a plain array or a paginated wrapper {videos: [...]}
+  if (Array.isArray(data)) return data;
+  if (data.videos) return data.videos;
+  return [];
+}
+
 export async function ingestVideo(youtubeUrl: string): Promise<Video> {
   const { data } = await client.post<Video>('/ingest/video', { youtube_url: youtubeUrl });
   return data;
