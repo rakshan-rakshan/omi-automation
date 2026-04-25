@@ -11,8 +11,13 @@
 
 import axios from 'axios';
 
-const SARVAM_API_KEY = process.env.SARVAM_API_KEY!;
 const BASE = 'https://api.sarvam.ai';
+
+function getApiKey(): string {
+  const key = process.env.SARVAM_API_KEY;
+  if (!key) throw new Error('SARVAM_API_KEY environment variable is not set');
+  return key;
+}
 
 export interface TranscriptSegment {
   start: number;
@@ -33,7 +38,7 @@ export async function initBatchJob(): Promise<BatchJobInit> {
   const res = await axios.post(
     `${BASE}/speech-to-text-translate/job/init`,
     {},
-    { headers: { 'api-subscription-key': SARVAM_API_KEY } }
+    { headers: { 'api-subscription-key': getApiKey() } }
   );
   // API returns snake_case: job_id, input_storage_path, output_storage_path
   const { job_id, input_storage_path, output_storage_path } = res.data;
@@ -76,7 +81,7 @@ export async function startBatchJob(jobId: string): Promise<void> {
     { job_id: jobId, job_parameters: { with_diarization: false } },
     {
       headers: {
-        'api-subscription-key': SARVAM_API_KEY,
+        'api-subscription-key': getApiKey(),
         'Content-Type': 'application/json',
       },
     }
@@ -88,7 +93,7 @@ export async function startBatchJob(jobId: string): Promise<void> {
 export async function getBatchJobStatus(jobId: string): Promise<BatchStatus> {
   const res = await axios.get(
     `${BASE}/speech-to-text-translate/job/${jobId}/status`,
-    { headers: { 'api-subscription-key': SARVAM_API_KEY } }
+    { headers: { 'api-subscription-key': getApiKey() } }
   );
   return res.data.job_state as BatchStatus;
 }
@@ -104,7 +109,7 @@ export async function getBatchJobResults(
   // Fetch job details to resolve file_id → output filename
   const statusRes = await axios.get(
     `${BASE}/speech-to-text-translate/job/${jobId}/status`,
-    { headers: { 'api-subscription-key': SARVAM_API_KEY } }
+    { headers: { 'api-subscription-key': getApiKey() } }
   );
   const jobDetails: Array<{ file_id: string; file_name: string; state: string }> =
     statusRes.data.job_details ?? [];
