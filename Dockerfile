@@ -13,4 +13,4 @@ COPY backend/ ./backend/
 
 ENV PYTHONPATH=/app
 
-CMD uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
