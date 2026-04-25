@@ -14,31 +14,25 @@ log = logging.getLogger(__name__)
 
 
 async def init_db() -> None:
+    """Initialize database schema with robust error handling and timeouts."""
     schema_path = Path(__file__).parent / "schema.sql"
     sql = schema_path.read_text()
-
     raw_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
-    max_retries = 3
-    retry_count = 0
-
-    while retry_count < max_retries:
+    try:
+        # Set a strict 5-second timeout for the entire operation
+        conn = await asyncio.wait_for(
+            asyncpg.connect(raw_url, timeout=5),
+            timeout=6
+        )
         try:
-            conn = await asyncpg.connect(raw_url, timeout=10)
-            try:
-                await conn.execute(sql)
-                log.info("Database schema initialized successfully")
-                return
-            finally:
-                await conn.close()
-        except asyncpg.CannotConnectNowError as exc:
-            retry_count += 1
-            if retry_count < max_retries:
-                log.warning(f"DB connection attempt {retry_count}/{max_retries} failed, retrying: {exc}")
-                await asyncio.sleep(2 ** retry_count)  # exponential backoff
-            else:
-                log.warning("Database initialization failed after retries (may be starting up): %s", exc)
-                return
-        except Exception as exc:
-            log.warning("DB schema init warning (may already be up to date): %s", exc)
-            return
+            await asyncio.wait_for(conn.execute(sql), timeout=10)
+            log.info("Database schema initialized successfully")
+        finally:
+            await conn.close()
+    except asyncio.TimeoutError:
+        log.warning("Database initialization timed out (DB may be starting or unreachable)")
+    except asyncpg.CannotConnectNowError as exc:
+        log.warning("Database not ready yet (will retry on next request): %s", exc)
+    except Exception as exc:
+        log.warning("Database initialization warning (may already be up to date): %s", exc)
